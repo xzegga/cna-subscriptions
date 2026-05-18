@@ -1,0 +1,216 @@
+.cna-order-confirmation {
+  max-width: 800px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.cna-loading-state,
+.cna-error-state {
+  text-align: center;
+  padding: 3rem 2rem;
+}
+
+.cna-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #0073aa;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 1rem;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.cna-error-icon {
+  font-size: 3rem;
+  color: #d63638;
+  margin-bottom: 1rem;
+}
+
+.cna-error-state h2 {
+  color: #d63638;
+  margin-bottom: 1rem;
+}
+
+.cna-confirmation-header {
+  text-align: center;
+  padding: 2rem;
+  border-radius: 8px;
+  margin-bottom: 2rem;
+}
+
+.cna-confirmation-header.success {
+  background: #e7f5e7;
+  border: 2px solid #4caf50;
+}
+
+.cna-confirmation-header.pending {
+  background: #fff3e0;
+  border: 2px solid #ff9800;
+}
+
+.cna-confirmation-icon {
+  font-size: 4rem;
+  color: #4caf50;
+  margin-bottom: 1rem;
+}
+
+.cna-confirmation-header.pending .cna-confirmation-icon {
+  color: #ff9800;
+  max-width: 100px;
+  margin: 0 auto;
+}
+
+.cna-confirmation-header h1 {
+  margin: 0 0 1rem 0;
+  color: #333;
+  font-size: 2rem;
+}
+
+.cna-confirmation-message {
+  color: #666;
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.cna-confirmation-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.cna-detail-card {
+  background: #f9f9f9;
+  padding: 1.5rem;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.cna-detail-card h2 {
+  margin: 0 0 1.5rem 0;
+  color: #333;
+  font-size: 1.5rem;
+  border-bottom: 2px solid #0073aa;
+  padding-bottom: 0.5rem;
+}
+
+.cna-detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.cna-detail-row:last-child {
+  border-bottom: none;
+}
+
+.cna-detail-label {
+  font-weight: 600;
+  color: #555;
+}
+
+.cna-detail-value {
+  color: #333;
+}
+
+.cna-status-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.cna-status-active {
+  background: #e7f5e7;
+  color: #2e7d32;
+}
+
+.cna-status-pending {
+  background: #fff3e0;
+  color: #f57c00;
+}
+
+.cna-summary-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.cna-summary-total {
+  padding: 1rem 0;
+  margin-top: 0;
+  border-top: 2px solid #0073aa;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #333;
+}
+
+.cna-confirmation-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.cna-button {
+  display: inline-block;
+  padding: 0.75rem 1.5rem;
+  border-radius: 4px;
+  text-decoration: none;
+  font-weight: 600;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.cna-button-primary {
+  background: #0073aa;
+  color: #fff;
+  border: 2px solid #0073aa;
+}
+
+.cna-button-primary:hover {
+  background: #005a87;
+  border-color: #005a87;
+}
+
+.cna-button-secondary {
+  background: #fff;
+  color: #0073aa;
+  border: 2px solid #0073aa;
+}
+
+.cna-button-secondary:hover {
+  background: #f0f8ff;
+}
+
+@media (max-width: 768px) {
+  .cna-order-confirmation {
+    padding: 1rem;
+    margin: 1rem;
+  }
+
+  .cna-confirmation-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .cna-confirmation-actions {
+    flex-direction: column;
+  }
+
+  .cna-button {
+    width: 100%;
+  }
+}

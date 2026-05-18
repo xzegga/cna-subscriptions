@@ -1,0 +1,984 @@
+.cna-checkout-wizard {
+  max-width: 1200px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.cna-checkout-wizard h2 {
+  margin-top: 0;
+  margin-bottom: 2rem;
+  color: #333;
+  text-align: center;
+}
+
+/* Resumen del Producto Header */
+.cna-product-summary-header {
+  display: flex;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  background: #fff;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  align-items: flex-start;
+}
+
+.cna-product-summary-image {
+  flex-shrink: 0;
+  width: 120px;
+  height: 120px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f5f5f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cna-product-summary-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cna-product-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 0.5rem;
+}
+
+.cna-product-summary-info {
+  flex: 1;
+}
+
+.cna-product-title {
+  margin: 0 0 0.75rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #4a9d5f;
+  line-height: 1.4;
+}
+
+.cna-product-price {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #4a9d5f;
+  margin-bottom: 1rem;
+}
+
+.cna-product-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cna-product-detail-row {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.cna-detail-label {
+  font-weight: 600;
+  color: #555;
+}
+
+.cna-detail-value {
+  color: #333;
+}
+
+@media (max-width: 768px) {
+  .cna-product-summary-header {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .cna-product-summary-image {
+    width: 100%;
+    height: 200px;
+  }
+
+  .cna-product-title {
+    font-size: 1.1rem;
+  }
+
+  .cna-product-price {
+    font-size: 1.3rem;
+  }
+}
+
+/* Layout de single page */
+.cna-single-page-checkout .cna-checkout-layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 2rem;
+  align-items: start;
+}
+
+/* Mensajes de error */
+.cna-error-message {
+  padding: 1rem;
+  background: #fce8e8;
+  border: 1px solid #d63638;
+  border-radius: 4px;
+  color: #d63638;
+  margin-bottom: 1.5rem;
+}
+
+/* Formulario principal */
+.cna-checkout-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Accordion Steps */
+.cna-accordion-step {
+  background: #fff;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.cna-accordion-step.active {
+  border-color: #0073aa;
+  box-shadow: 0 2px 8px rgba(0, 115, 170, 0.1);
+}
+
+.cna-accordion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.5rem;
+  cursor: pointer;
+  background: #f9f9f9;
+  transition: background 0.2s;
+}
+
+.cna-accordion-header:hover {
+  background: #f0f0f0;
+}
+
+.cna-accordion-step.active .cna-accordion-header {
+  background: #f0f8ff;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.cna-step-title {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.cna-step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #e0e0e0;
+  color: #666;
+  font-weight: 600;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.cna-accordion-step.active .cna-step-number {
+  background: #0073aa;
+  color: #fff;
+}
+
+.cna-step-label {
+  font-weight: 600;
+  color: #333;
+  font-size: 1.1rem;
+}
+
+.cna-step-status {
+  font-size: 0.9rem;
+}
+
+.cna-step-complete {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+.cna-step-incomplete {
+  color: #ff9800;
+  font-weight: 500;
+}
+
+.cna-accordion-content {
+  padding: 1.5rem;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cna-form-section {
+  padding: 0;
+}
+
+.cna-form-section h3 {
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  color: #333;
+  font-size: 1.25rem;
+  border-bottom: 2px solid #0073aa;
+  padding-bottom: 0.5rem;
+}
+
+.cna-auto-renew-section {
+  margin-top: 1rem;
+  padding: 1.5rem;
+  background: #f9f9f9;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.cna-form-group {
+  margin-bottom: 1.5rem;
+}
+
+.cna-form-group:last-child {
+  margin-bottom: 0;
+}
+
+.cna-form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: #555;
+}
+
+.cna-input,
+.cna-select,
+.cna-textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.cna-input:focus,
+.cna-select:focus,
+.cna-textarea:focus {
+  outline: none;
+  border-color: #0073aa;
+  box-shadow: 0 0 0 2px rgba(0, 115, 170, 0.1);
+}
+
+.cna-select:disabled {
+  background: #f5f5f5;
+  cursor: not-allowed;
+  opacity: 0.6;
+  color: #999;
+}
+
+/* Opciones de envío */
+.cna-shipping-options {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #fff;
+  border-radius: 4px;
+}
+
+.cna-shipping-options h4 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: #333;
+}
+
+.cna-shipping-option {
+  display: flex;
+  align-items: center;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  border: 2px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cna-shipping-option:hover {
+  border-color: #0073aa;
+  background: #f0f8ff;
+}
+
+.cna-shipping-option input[type="radio"] {
+  margin-right: 1rem;
+}
+
+.cna-option-content {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cna-option-price {
+  font-weight: 600;
+  color: #0073aa;
+}
+
+.cna-shipping-option input[type="radio"]:checked + .cna-option-content {
+  color: #0073aa;
+}
+
+/* Facturación */
+.cna-billing-form {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #fff;
+  border-radius: 4px;
+}
+
+/* Resumen sticky */
+.cna-checkout-summary-sticky {
+  position: sticky;
+  top: 2rem;
+  align-self: start;
+}
+
+.cna-summary-card {
+  background: #f9f9f9;
+  border: 2px solid #0073aa;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.cna-summary-card h3 {
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  color: #333;
+  font-size: 1.25rem;
+  border-bottom: 2px solid #0073aa;
+  padding-bottom: 0.5rem;
+}
+
+/* Información de envío en el sticky */
+.cna-summary-shipping-info {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: #fff;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+  font-size: 0.9rem;
+}
+
+.cna-summary-shipping-info strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #333;
+}
+
+/* Opciones de método de entrega */
+.cna-delivery-method-options {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.cna-delivery-method-option {
+  display: flex;
+  align-items: flex-start;
+  padding: 1.5rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #fff;
+}
+
+.cna-delivery-method-option:hover {
+  border-color: #0073aa;
+  background: #f0f8ff;
+}
+
+.cna-delivery-method-option.selected {
+  border-color: #0073aa;
+  background: #e0f2f7;
+}
+
+.cna-delivery-method-option input[type="radio"] {
+  margin-right: 1rem;
+  margin-top: 0.25rem;
+  cursor: pointer;
+}
+
+.cna-delivery-method-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cna-delivery-method-content strong {
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.cna-delivery-method-description {
+  font-size: 0.9rem;
+  color: #666;
+}
+
+/* Leyenda de ubicaciones disponibles */
+.cna-location-legend {
+  background: #e8f4f8;
+  border: 1px solid #0073aa;
+  border-radius: 4px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.9rem;
+  color: #333;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.cna-location-legend strong {
+  color: #0073aa;
+}
+
+.cna-location-legend span {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+/* Lista de direcciones guardadas */
+.cna-addresses-list {
+  margin-bottom: 2rem;
+}
+
+.cna-addresses-list h4 {
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.cna-address-item {
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  transition: all 0.2s;
+  background: #fff;
+}
+
+.cna-address-item:hover {
+  border-color: #0073aa;
+  box-shadow: 0 2px 8px rgba(0, 115, 170, 0.1);
+}
+
+.cna-address-item.selected {
+  border-color: #0073aa;
+  background: #f0f8ff;
+}
+
+.cna-address-radio {
+  display: flex;
+  align-items: flex-start;
+  cursor: pointer;
+  margin: 0;
+}
+
+.cna-address-radio input[type="radio"] {
+  margin-right: 1rem;
+  margin-top: 0.25rem;
+  cursor: pointer;
+}
+
+.cna-address-content {
+  flex: 1;
+}
+
+.cna-address-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.cna-address-header strong {
+  font-size: 1rem;
+  color: #333;
+}
+
+.cna-address-default {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  background: #e7f5e7;
+  color: #2e7d32;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.cna-address-details {
+  color: #666;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-bottom: 0.75rem;
+}
+
+.cna-address-actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.cna-link-button {
+  background: none;
+  border: none;
+  color: #0073aa;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.9rem;
+  text-decoration: underline;
+  transition: color 0.2s;
+}
+
+.cna-link-button:hover {
+  color: #005a87;
+}
+
+.cna-add-address-button {
+  width: 100%;
+  padding: 0.75rem;
+  background: #fff;
+  border: 2px dashed #0073aa;
+  border-radius: 8px;
+  color: #0073aa;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 0.5rem;
+}
+
+.cna-add-address-button:hover {
+  background: #f0f8ff;
+  border-color: #005a87;
+  color: #005a87;
+}
+
+/* Lista de tiendas */
+.cna-stores-list {
+  margin-bottom: 1rem;
+}
+
+.cna-stores-list h4 {
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.cna-store-item {
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  transition: all 0.2s;
+  background: #fff;
+}
+
+.cna-store-item:hover {
+  border-color: #0073aa;
+  box-shadow: 0 2px 8px rgba(0, 115, 170, 0.1);
+}
+
+.cna-store-item.selected {
+  border-color: #0073aa;
+  background: #f0f8ff;
+}
+
+.cna-store-radio {
+  display: flex;
+  align-items: flex-start;
+  cursor: pointer;
+  margin: 0;
+}
+
+.cna-store-radio input[type="radio"] {
+  margin-right: 1rem;
+  margin-top: 0.25rem;
+  cursor: pointer;
+}
+
+.cna-store-content {
+  flex: 1;
+}
+
+.cna-store-header {
+  margin-bottom: 0.5rem;
+}
+
+.cna-store-header strong {
+  font-size: 1rem;
+  color: #333;
+}
+
+.cna-store-details {
+  color: #666;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-bottom: 0.5rem;
+}
+
+.cna-store-phone,
+.cna-store-hours {
+  color: #666;
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.cna-store-phone .cna-icon,
+.cna-store-hours .cna-icon {
+  font-size: 1.1rem;
+  line-height: 1;
+  display: inline-block;
+  flex-shrink: 0;
+  text-align: center;
+  min-width: 26px;
+}
+
+/* Icono de teléfono - ligeramente más pequeño */
+.cna-icon-phone {
+  font-size: 1rem !important;
+}
+
+/* Icono de horarios - ligeramente más grande */
+.cna-icon-hours {
+  font-size: 1.15rem !important;
+  margin-top: 0.1rem;
+}
+
+/* Lista de horarios, uno por línea */
+.cna-store-hours-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.cna-store-hour-item {
+  line-height: 1.4;
+}
+
+.cna-hour-day {
+  font-weight: 600;
+  margin-right: 0.5rem;
+}
+
+.cna-address-form-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.cna-address-form-actions .cna-button {
+  flex: 1;
+}
+
+/* Métodos de entrega en el sticky */
+.cna-summary-shipping-methods {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #eee;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #eee;
+}
+
+.cna-summary-shipping-methods strong {
+  display: block;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.cna-shipping-options-sticky {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cna-shipping-option-sticky {
+  display: flex;
+  align-items: flex-start;
+  padding: 0.75rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #fff;
+}
+
+.cna-shipping-option-sticky:hover {
+  border-color: #0073aa;
+  background: #f0f8ff;
+}
+
+.cna-shipping-option-sticky input[type="radio"] {
+  margin-right: 0.75rem;
+  margin-top: 0.15rem;
+  cursor: pointer;
+}
+
+.cna-shipping-option-sticky input[type="radio"]:checked + .cna-option-content-sticky {
+  color: #0073aa;
+}
+
+.cna-option-content-sticky {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.cna-option-content-sticky strong {
+  font-size: 0.9rem;
+  margin: 0;
+  display: block;
+}
+
+.cna-option-price-sticky {
+  font-size: 0.85rem;
+  color: #666;
+  font-weight: normal;
+}
+
+.cna-shipping-option-sticky:has(input[type="radio"]:checked) {
+  border-color: #0073aa;
+  background: #e0f2f7;
+}
+
+.cna-summary-shipping-methods .cna-form-group {
+  margin-top: 0.75rem;
+}
+
+.cna-summary-shipping-methods .cna-form-group label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+.cna-summary-shipping-methods .cna-select {
+  width: 100%;
+  padding: 0.625rem;
+  font-size: 0.875rem;
+}
+
+.cna-shipping-address {
+  color: #666;
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.cna-summary-section {
+  /* margin-bottom: 0.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e0e0e0; */
+}
+
+.cna-summary-section:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.cna-summary-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  align-items: center;
+}
+
+.cna-summary-total {
+  margin-top: 1.5rem;
+  border-top: 2px solid #0073aa;
+}
+
+.cna-summary-total .cna-summary-row {
+  font-size: 1.25rem;
+  color: #333;
+}
+
+.cna-fee-row {
+  color: #666;
+  font-size: 0.95em;
+}
+
+.cna-info-text {
+  color: #666;
+  font-size: 0.9em;
+  line-height: 1.6;
+}
+
+/* Checkbox */
+.cna-checkbox-label {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 0.75rem;
+  cursor: pointer;
+  font-weight: normal;
+}
+
+.cna-checkbox-label input[type="checkbox"] {
+  margin-top: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Botones */
+.cna-button {
+  padding: 1rem 2rem;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cna-button-primary {
+  background: #0073aa;
+  color: #fff;
+}
+
+.cna-button-primary:hover:not(:disabled) {
+  background: #005a87;
+}
+
+.cna-button-secondary {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.cna-button-secondary:hover {
+  background: #e0e0e0;
+}
+
+.cna-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.cna-button-full-width {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.cna-validation-hint {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  color: #d63638;
+  text-align: center;
+}
+
+.cna-loading {
+  text-align: center;
+  padding: 1rem;
+  color: #666;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .cna-single-page-checkout .cna-checkout-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .cna-checkout-summary-sticky {
+    position: relative;
+    top: 0;
+    order: -1;
+  }
+
+  .cna-summary-card {
+    margin-bottom: 2rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .cna-checkout-wizard {
+    padding: 1rem;
+    margin: 1rem;
+    max-width: 100%;
+  }
+
+  .cna-accordion-header {
+    padding: 1rem;
+  }
+
+  .cna-accordion-content {
+    padding: 1rem;
+  }
+
+  .cna-form-section {
+    padding: 0;
+  }
+
+  .cna-summary-card {
+    padding: 1rem;
+  }
+
+  .cna-checkout-wizard h2 {
+    font-size: 1.5rem;
+  }
+
+  .cna-step-label {
+    font-size: 1rem;
+  }
+
+  .cna-summary-card h3 {
+    font-size: 1.1rem;
+  }
+}
+
+/* Estilos para botón "Siguiente" en cada paso */
+.cna-step-actions {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #eee;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.cna-step-actions .cna-button {
+  min-width: 120px;
+}
+
+.cna-step-actions .cna-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

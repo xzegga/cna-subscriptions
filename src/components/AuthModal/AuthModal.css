@@ -1,0 +1,181 @@
+.cna-auth-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+}
+
+.cna-auth-modal {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  max-width: 450px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.cna-auth-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.cna-auth-modal-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 1.5rem;
+}
+
+.cna-auth-modal-close {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  color: #666;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.cna-auth-modal-close:hover {
+  color: #333;
+}
+
+.cna-auth-modal-tabs {
+  display: flex;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.cna-auth-modal-tabs button {
+  flex: 1;
+  padding: 1rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #666;
+  transition: all 0.2s;
+  margin-bottom: -2px;
+}
+
+.cna-auth-modal-tabs button:hover {
+  color: #0073aa;
+  background: #f9f9f9;
+}
+
+.cna-auth-modal-tabs button.active {
+  color: #0073aa;
+  border-bottom-color: #0073aa;
+}
+
+.cna-auth-error {
+  margin: 1rem 1.5rem;
+  padding: 0.75rem;
+  background: #fce8e8;
+  border: 1px solid #d63638;
+  border-radius: 4px;
+  color: #d63638;
+  font-size: 0.9em;
+}
+
+.cna-auth-form {
+  padding: 1.5rem;
+}
+
+.cna-auth-form .cna-form-group {
+  margin-bottom: 1.25rem;
+}
+
+.cna-auth-form label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: #555;
+  font-size: 0.95em;
+}
+
+.cna-auth-form input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.cna-auth-form input:focus {
+  outline: none;
+  border-color: #0073aa;
+  box-shadow: 0 0 0 2px rgba(0, 115, 170, 0.1);
+}
+
+.cna-auth-form input:disabled {
+  background: #f5f5f5;
+  cursor: not-allowed;
+}
+
+.cna-auth-button {
+  width: 100%;
+  padding: 1rem;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 0.5rem;
+}
+
+.cna-auth-button-primary {
+  background: #0073aa;
+  color: #fff;
+}
+
+.cna-auth-button-primary:hover:not(:disabled) {
+  background: #005a87;
+}
+
+.cna-auth-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.cna-auth-footer {
+  margin-top: 1.5rem;
+  text-align: center;
+  color: #666;
+  font-size: 0.9em;
+}
+
+.cna-auth-link {
+  background: none;
+  border: none;
+  color: #0073aa;
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: inherit;
+  padding: 0;
+}
+
+.cna-auth-link:hover {
+  color: #005a87;
+}

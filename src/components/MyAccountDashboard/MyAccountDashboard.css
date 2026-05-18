@@ -1,0 +1,229 @@
+.cna-my-account {
+  max-width: 1000px;
+  margin: 2rem auto;
+  padding: 2rem;
+}
+
+.cna-my-account h2 {
+  margin-bottom: 2rem;
+  color: #333;
+}
+
+.cna-loading,
+.cna-error-message {
+  padding: 1.5rem;
+  text-align: center;
+  border-radius: 4px;
+}
+
+.cna-error-message {
+  background: #fce8e8;
+  border: 1px solid #d63638;
+  color: #d63638;
+}
+
+.cna-subscriptions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.cna-subscription-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1.5rem;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.cna-subscription-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.cna-subscription-info {
+  flex: 1;
+}
+
+.cna-subscription-info h3 {
+  margin: 0 0 0.5rem 0;
+  color: #333;
+}
+
+.cna-status-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.cna-status-badge.status-active {
+  background: #d4edda;
+  color: #155724;
+}
+
+.cna-status-badge.status-pending {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.cna-status-badge.status-cancelled {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.cna-status-badge.status-failed {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.cna-status-badge.status-completed {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.cna-toggle-button {
+  padding: 0.5rem 1rem;
+  background: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cna-toggle-button:hover {
+  background: #e0e0e0;
+}
+
+.cna-subscription-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: #f9f9f9;
+  border-radius: 4px;
+}
+
+.cna-summary-item {
+  font-size: 0.95em;
+}
+
+.cna-summary-item strong {
+  color: #555;
+  margin-right: 0.5rem;
+}
+
+.cna-auto-renew-section {
+  padding: 1rem;
+  background: #f0f8ff;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.cna-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  font-weight: 600;
+  color: #0073aa;
+}
+
+.cna-toggle-label input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.cna-subscription-details {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.cna-detail-section {
+  margin-bottom: 1.5rem;
+}
+
+.cna-detail-section h4 {
+  margin: 0 0 0.75rem 0;
+  color: #333;
+  font-size: 1.1em;
+}
+
+.cna-detail-section p {
+  margin: 0.5rem 0;
+  color: #666;
+}
+
+.cna-deliveries-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.cna-delivery-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  background: #f9f9f9;
+  border-radius: 4px;
+  border-left: 3px solid #0073aa;
+}
+
+.cna-delivery-item.past {
+  opacity: 0.7;
+  background: #f5f5f5;
+}
+
+.cna-delivery-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.cna-delivery-date {
+  font-weight: 600;
+  color: #333;
+}
+
+.cna-delivery-status {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 8px;
+  font-size: 0.8em;
+  font-weight: 600;
+}
+
+.cna-delivery-status.cna-status-scheduled {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.cna-delivery-status.cna-status-delivered {
+  background: #d4edda;
+  color: #155724;
+}
+
+.cna-delivery-status.cna-status-cancelled {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.cna-delivery-status.cna-status-pending {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.cna-delivery-amount {
+  color: #0073aa;
+  font-weight: 600;
+  margin-left: 1rem;
+}
