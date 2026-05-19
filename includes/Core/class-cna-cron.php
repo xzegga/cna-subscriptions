@@ -54,11 +54,11 @@ class CNA_Cron {
         ));
 
         if (empty($subscriptions)) {
-            error_log('CNA Cron: No hay suscripciones para renovar hoy');
+            CNA_Security::debug_log('CNA Cron: No hay suscripciones para renovar hoy');
             return;
         }
 
-        error_log(sprintf('CNA Cron: Procesando %d suscripciones para renovar', count($subscriptions)));
+        CNA_Security::debug_log('CNA Cron: Procesando suscripciones', array('count' => count($subscriptions)));
 
         foreach ($subscriptions as $subscription) {
             $this->process_single_renewal($subscription);
@@ -74,7 +74,7 @@ class CNA_Cron {
         global $wpdb;
         $table_prefix = $wpdb->prefix;
 
-        error_log(sprintf('CNA Cron: Procesando renovación para suscripción #%d', $subscription->id));
+        CNA_Security::debug_log('CNA Cron: Procesando renovación', array('subscription_id' => $subscription->id));
 
         // Obtener detalles del producto y variante
         // Decodificar JSON con soporte UTF-8
@@ -89,7 +89,7 @@ class CNA_Cron {
         $amount = $this->calculate_renewal_amount($subscription, $variant_details, $product_id);
 
         if (is_wp_error($amount)) {
-            error_log('CNA Cron Error: ' . $amount->get_error_message());
+            CNA_Security::debug_log('CNA Cron: Error calculando monto', array('error' => $amount->get_error_message()));
             $this->mark_renewal_failed($subscription->id, $amount->get_error_message());
             return;
         }
@@ -98,7 +98,7 @@ class CNA_Cron {
         $decrypted_token = CNA_Token_Encryption::decrypt($subscription->pagadito_token);
         
         if (!$decrypted_token) {
-            error_log('CNA Cron Error: No se pudo desencriptar el token para suscripción #' . $subscription->id);
+            CNA_Security::debug_log('CNA Cron Error: token inválido', array('subscription_id' => $subscription->id));
             $this->mark_renewal_failed($subscription->id, 'Error al desencriptar token');
             return;
         }
@@ -135,7 +135,7 @@ class CNA_Cron {
         );
 
         if (is_wp_error($charge_result)) {
-            error_log('CNA Cron Error: Fallo al cobrar con token - ' . $charge_result->get_error_message());
+            CNA_Security::debug_log('CNA Cron Error: fallo al cobrar', array('error' => $charge_result->get_error_message()));
             $this->mark_renewal_failed($subscription->id, $charge_result->get_error_message());
             return;
         }
@@ -144,7 +144,7 @@ class CNA_Cron {
         $charge_status = isset($charge_result['status']) ? strtolower($charge_result['status']) : '';
         
         if (!in_array($charge_status, array('completed', 'approved', 'success'))) {
-            error_log('CNA Cron Error: Cobro rechazado - Status: ' . $charge_status);
+            CNA_Security::debug_log('CNA Cron Error: cobro rechazado', array('status' => $charge_status));
             
             // Log de renovación fallida
             CNA_Audit_Logger::log(
@@ -348,11 +348,10 @@ class CNA_Cron {
         // Enviar email de confirmación (implementar después)
         // wp_mail(...);
 
-        error_log(sprintf(
-            'CNA Cron: Suscripción #%d renovada exitosamente. Próxima renovación: %s. Entregas creadas: %d',
-            $subscription->id,
-            $next_renewal,
-            count($delivery_dates)
+        CNA_Security::debug_log('CNA Cron: Suscripción renovada', array(
+            'subscription_id' => $subscription->id,
+            'next_renewal' => $next_renewal,
+            'deliveries_created' => count($delivery_dates),
         ));
     }
 
@@ -397,10 +396,9 @@ class CNA_Cron {
         // Enviar email de alerta (implementar después)
         // wp_mail(...);
 
-        error_log(sprintf(
-            'CNA Cron: Suscripción #%d marcada como payment_failed. Error: %s',
-            $subscription_id,
-            $error_message
+        CNA_Security::debug_log('CNA Cron: Suscripción payment_failed', array(
+            'subscription_id' => $subscription_id,
+            'error' => $error_message,
         ));
     }
 

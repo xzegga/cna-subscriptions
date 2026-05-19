@@ -120,22 +120,13 @@ if (!class_exists('Pagadito_APIPG')) {
                 );
             }
 
-            // === DEBUG: Log detallado para desarrolladores de Pagadito ===
-            if (function_exists('error_log')) {
-                error_log('====== PAGADITO DEBUG START ======');
-                error_log('CNA Pagadito: Raw details array BEFORE json_encode:');
-                error_log(print_r($this->details, true));
-                error_log('CNA Pagadito: Raw custom_params array BEFORE json_encode:');
-                error_log(print_r($this->custom_params, true));
-            }
-
             // Seguir el formato exacto del SDK oficial (ver docs APIPG)
             $details_json = json_encode($this->details, JSON_UNESCAPED_UNICODE);
             $custom_params_json = json_encode($this->custom_params, JSON_UNESCAPED_UNICODE);
 
-            if (function_exists('error_log')) {
-                error_log('CNA Pagadito: details JSON (with JSON_UNESCAPED_UNICODE): ' . $details_json);
-                error_log('CNA Pagadito: details JSON hex dump: ' . bin2hex($details_json));
+            if (defined('WP_DEBUG') && WP_DEBUG && defined('CNA_PAGADITO_DEBUG') && CNA_PAGADITO_DEBUG) {
+                error_log('====== PAGADITO DEBUG START ======');
+                error_log('CNA Pagadito: details JSON: ' . $details_json);
                 error_log('CNA Pagadito: custom_params JSON: ' . $custom_params_json);
                 error_log('CNA Pagadito: Calculated amount: ' . $this->calc_amount());
             }
@@ -162,9 +153,8 @@ if (!class_exists('Pagadito_APIPG')) {
                 $params['cancel_url'] = $this->cancel_url;
             }
 
-            if (function_exists('error_log')) {
-                error_log('CNA Pagadito: All params BEFORE call():');
-                error_log(print_r($params, true));
+            if (defined('WP_DEBUG') && WP_DEBUG && defined('CNA_PAGADITO_DEBUG') && CNA_PAGADITO_DEBUG) {
+                error_log('CNA Pagadito: exec_trans params: ' . wp_json_encode(array_keys($params)));
             }
 
             $this->response = $this->call($params);
@@ -180,9 +170,8 @@ if (!class_exists('Pagadito_APIPG')) {
             );
 
             if ($response_code === 'PG1002') {
-                if (function_exists('error_log')) {
-                    error_log('CNA Pagadito: SUCCESS PG1002 - Transaction created');
-                    error_log('CNA Pagadito: Redirect URL: ' . urldecode($response_value));
+                if (defined('WP_DEBUG') && WP_DEBUG && defined('CNA_PAGADITO_DEBUG') && CNA_PAGADITO_DEBUG) {
+                    error_log('CNA Pagadito: SUCCESS PG1002 - Redirect URL: ' . urldecode($response_value));
                     error_log('====== PAGADITO DEBUG END (SUCCESS) ======');
                 }
                 return array_merge($result, array(
@@ -193,11 +182,10 @@ if (!class_exists('Pagadito_APIPG')) {
                 ));
             }
 
-            // Log auxiliar para depurar errores de formato (PG2002, etc.)
-            if (function_exists('error_log')) {
+            if (defined('WP_DEBUG') && WP_DEBUG && defined('CNA_PAGADITO_DEBUG') && CNA_PAGADITO_DEBUG) {
                 error_log('CNA Pagadito: ERROR ' . $response_code . ': ' . $response_message);
-                error_log('CNA Pagadito: HTTP Response Code: ' . $this->last_http_response['status_code']);
-                error_log('CNA Pagadito: HTTP Response Body: ' . $this->last_http_response['body']);
+                error_log('CNA Pagadito: HTTP Status: ' . $this->last_http_response['status_code']);
+                error_log('CNA Pagadito: HTTP Body: ' . $this->last_http_response['body']);
                 error_log('====== PAGADITO DEBUG END (ERROR) ======');
             }
 
@@ -273,13 +261,8 @@ if (!class_exists('Pagadito_APIPG')) {
             // format_post_vars() codifica cada valor con urlencode(), incluyendo caracteres especiales como [ ]
             $body = $this->format_post_vars($params);
 
-            if (function_exists('error_log')) {
-                error_log('CNA Pagadito HTTP Request:');
-                error_log('  Endpoint: ' . $endpoint);
-                error_log('  Method: POST');
-                error_log('  Content-Type: application/x-www-form-urlencoded');
-                error_log('  Body (URL-encoded): ' . $body);
-                error_log('  Body length: ' . strlen($body) . ' bytes');
+            if (defined('WP_DEBUG') && WP_DEBUG && defined('CNA_PAGADITO_DEBUG') && CNA_PAGADITO_DEBUG) {
+                error_log('CNA Pagadito HTTP Request: ' . $endpoint . ' (' . strlen($body) . ' bytes)');
             }
 
             $response = wp_remote_post($endpoint, array(
@@ -298,7 +281,7 @@ if (!class_exists('Pagadito_APIPG')) {
                     'headers' => array(),
                     'error' => $response->get_error_message(),
                 );
-                if (function_exists('error_log')) {
+                if (defined('WP_DEBUG') && WP_DEBUG && defined('CNA_PAGADITO_DEBUG') && CNA_PAGADITO_DEBUG) {
                     error_log('CNA Pagadito HTTP Error: ' . $response->get_error_message());
                 }
                 return null;
@@ -315,12 +298,8 @@ if (!class_exists('Pagadito_APIPG')) {
                 'error' => null,
             );
 
-            if (function_exists('error_log')) {
-                error_log('CNA Pagadito HTTP Response:');
-                error_log('  Status Code: ' . $status_code);
-                error_log('  Body: ' . $body);
-                error_log('  Body length: ' . strlen($body) . ' bytes');
-                error_log('  Content-Type: ' . ($response_headers['content-type'] ?? 'not set'));
+            if (defined('WP_DEBUG') && WP_DEBUG && defined('CNA_PAGADITO_DEBUG') && CNA_PAGADITO_DEBUG) {
+                error_log('CNA Pagadito HTTP Response: status=' . $status_code . ' length=' . strlen($body));
             }
 
             return $this->decode_response($body);
@@ -336,35 +315,22 @@ if (!class_exists('Pagadito_APIPG')) {
         private function format_post_vars($vars)
         {
             $formatted_vars = '';
-
-            if (function_exists('error_log')) {
-                error_log('CNA Pagadito format_post_vars encoding each parameter:');
-            }
+            $pg_debug = defined('WP_DEBUG') && WP_DEBUG && defined('CNA_PAGADITO_DEBUG') && CNA_PAGADITO_DEBUG;
 
             foreach ($vars as $key => $value) {
-                $original_value = $value;
-                // Convertir a string si no lo es (por ejemplo, booleanos)
                 $value = (string) $value;
                 $encoded_value = urlencode($value);
 
-                if (function_exists('error_log')) {
-                    error_log('  ' . $key . ':');
-                    error_log('    Original: ' . substr($original_value, 0, 200) . (strlen($original_value) > 200 ? '...' : ''));
-                    error_log('    String: ' . substr($value, 0, 200) . (strlen($value) > 200 ? '...' : ''));
-                    error_log('    URL-encoded: ' . substr($encoded_value, 0, 200) . (strlen($encoded_value) > 200 ? '...' : ''));
-                    if ($key === 'details' || $key === 'custom_params') {
-                        error_log('    Hex dump: ' . substr(bin2hex($value), 0, 200));
-                    }
+                if ($pg_debug) {
+                    error_log('CNA Pagadito param ' . $key . ': ' . substr($encoded_value, 0, 200));
                 }
 
                 $formatted_vars .= $key . '=' . $encoded_value . '&';
             }
             $formatted_vars = rtrim($formatted_vars, '&');
 
-            if (function_exists('error_log')) {
-                error_log('CNA Pagadito format_post_vars FINAL output:');
-                error_log('  Length: ' . strlen($formatted_vars) . ' bytes');
-                error_log('  Full string: ' . $formatted_vars);
+            if ($pg_debug) {
+                error_log('CNA Pagadito format_post_vars: ' . strlen($formatted_vars) . ' bytes');
             }
 
             return $formatted_vars;
@@ -523,18 +489,14 @@ class CNA_Pagadito_Client
         $subscription_id = isset($data['subscription_id']) ? intval($data['subscription_id']) : 0;
         if ($subscription_id > 0) {
             $return_base = rest_url('cna/v1/payment-return');
-            $client->set_return_url(
-                add_query_arg(array('subscription_id' => $subscription_id), $return_base)
-            );
-            $client->set_cancel_url(
-                add_query_arg(
-                    array(
-                        'subscription_id' => $subscription_id,
-                        'status' => 'cancelled',
-                    ),
-                    $return_base
-                )
-            );
+            $return_args = array('subscription_id' => $subscription_id);
+            $cancel_args = array('subscription_id' => $subscription_id, 'status' => 'cancelled');
+            if (!empty($data['state'])) {
+                $return_args['state'] = $data['state'];
+                $cancel_args['state'] = $data['state'];
+            }
+            $client->set_return_url(add_query_arg($return_args, $return_base));
+            $client->set_cancel_url(add_query_arg($cancel_args, $return_base));
         }
 
         if (!$client->connect()) {

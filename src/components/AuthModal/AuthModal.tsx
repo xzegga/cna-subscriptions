@@ -23,6 +23,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
   const [registerFirstName, setRegisterFirstName] = useState('');
   const [registerLastName, setRegisterLastName] = useState('');
 
+  // Honeypot — must remain empty for real users; bots typically fill it.
+  const [honeypot, setHoneypot] = useState('');
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -129,8 +132,14 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
       return;
     }
 
-    if (registerPassword.length < 6) {
-      setError('La contraseña debe tener al menos 6 caracteres');
+    if (registerPassword.length < 10) {
+      setError('La contraseña debe tener al menos 10 caracteres');
+      setLoading(false);
+      return;
+    }
+
+    if (!/[a-zA-Z]/.test(registerPassword) || !/[0-9]/.test(registerPassword)) {
+      setError('La contraseña debe contener al menos una letra y un número');
       setLoading(false);
       return;
     }
@@ -147,6 +156,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
           password: registerPassword,
           first_name: registerFirstName,
           last_name: registerLastName,
+          website: honeypot,
         }),
       });
 
@@ -281,6 +291,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
 
         {isLogin ? (
           <form onSubmit={handleLogin} className="cna-auth-form">
+            {/* Honeypot field — hidden from users, visible to bots */}
+            <div style={{ position: 'absolute', left: '-9999px', opacity: 0, height: 0, overflow: 'hidden' }} aria-hidden="true">
+              <label htmlFor="login-website">Website</label>
+              <input id="login-website" type="text" name="website" tabIndex={-1} autoComplete="off" />
+            </div>
             <div className="cna-form-group">
               <label htmlFor="login-email">Correo electrónico *</label>
               <input
@@ -328,6 +343,19 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
           </form>
         ) : (
           <form onSubmit={handleRegister} className="cna-auth-form">
+            {/* Honeypot field — hidden from users, visible to bots */}
+            <div style={{ position: 'absolute', left: '-9999px', opacity: 0, height: 0, overflow: 'hidden' }} aria-hidden="true">
+              <label htmlFor="register-website">Website</label>
+              <input
+                id="register-website"
+                type="text"
+                name="website"
+                tabIndex={-1}
+                autoComplete="off"
+                value={honeypot}
+                onChange={(e) => setHoneypot(e.target.value)}
+              />
+            </div>
             <div className="cna-form-group">
               <label htmlFor="register-first-name">Nombre *</label>
               <input
@@ -376,8 +404,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
                 onChange={(e) => setRegisterPassword(e.target.value)}
                 required
                 disabled={loading}
-                minLength={6}
-                placeholder="Mínimo 6 caracteres"
+                minLength={10}
+                placeholder="Mínimo 10 caracteres, incluye letras y números"
               />
             </div>
 
@@ -390,7 +418,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
                 onChange={(e) => setRegisterPasswordConfirm(e.target.value)}
                 required
                 disabled={loading}
-                minLength={6}
+                minLength={10}
                 placeholder="Repite la contraseña"
               />
             </div>

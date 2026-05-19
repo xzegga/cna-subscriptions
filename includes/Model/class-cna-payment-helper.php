@@ -14,6 +14,38 @@ if (!defined('ABSPATH')) {
 class CNA_Payment_Helper {
 
     /**
+     * Normalizes a numeric value as a decimal string for JSON storage (avoids float noise in DB).
+     *
+     * @param mixed $value
+     * @param int   $decimals Max decimal places to keep.
+     * @return string e.g. "0.05", "0.25"
+     */
+    public static function format_decimal_for_storage($value, $decimals = 2) {
+        if (!is_numeric($value)) {
+            return '0';
+        }
+
+        $n = max(0, (float) $value);
+        $formatted = number_format($n, $decimals, '.', '');
+
+        if (strpos($formatted, '.') !== false) {
+            $formatted = rtrim(rtrim($formatted, '0'), '.');
+        }
+
+        return $formatted === '' ? '0' : $formatted;
+    }
+
+    /**
+     * Parses a stored decimal string (or legacy float) for calculations.
+     *
+     * @param mixed $value
+     * @return float
+     */
+    public static function parse_decimal($value) {
+        return is_numeric($value) ? (float) $value : 0.0;
+    }
+
+    /**
      * Obtiene un gateway por su slug
      *
      * @param string $slug Slug del gateway (ej: 'pagadito')
@@ -94,12 +126,22 @@ class CNA_Payment_Helper {
             );
         }
 
+        // Prefer the encrypted WSK (wsk_enc); fall back to plaintext for pre-migration rows.
+        $wsk = '';
+        if (!empty($gateway->settings['wsk_enc']) && class_exists('CNA_Token_Encryption')) {
+            $decrypted = CNA_Token_Encryption::decrypt($gateway->settings['wsk_enc']);
+            $wsk = $decrypted !== false ? $decrypted : '';
+        }
+        if ($wsk === '' && !empty($gateway->settings['wsk'])) {
+            $wsk = $gateway->settings['wsk'];
+        }
+
         return array(
             'uid' => $gateway->settings['uid'] ?? '',
-            'wsk' => $gateway->settings['wsk'] ?? '',
+            'wsk' => $wsk,
             'sandbox' => $gateway->settings['sandbox'] ?? true,
-            'fee' => $gateway->settings['fee'] ?? '0.06',
-            'fee_fixed' => $gateway->settings['fee_fixed'] ?? '0',
+            'fee' => self::format_decimal_for_storage($gateway->settings['fee'] ?? '0.06', 4),
+            'fee_fixed' => self::format_decimal_for_storage($gateway->settings['fee_fixed'] ?? '0', 2),
         );
     }
 
@@ -116,7 +158,7 @@ class CNA_Payment_Helper {
         }
 
         if ($gateway->slug === 'pagadito') {
-            return floatval($gateway->settings['fee'] ?? '0.06');
+            return self::parse_decimal($gateway->settings['fee'] ?? '0.06');
         }
 
         return 0.06;
@@ -135,7 +177,7 @@ class CNA_Payment_Helper {
         }
 
         if ($gateway->slug === 'pagadito') {
-            return floatval($gateway->settings['fee_fixed'] ?? '0');
+            return self::parse_decimal($gateway->settings['fee_fixed'] ?? '0');
         }
 
         return 0.0;

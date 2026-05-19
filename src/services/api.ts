@@ -7,6 +7,29 @@
 
 const API_BASE = '/wp-json/cna/v1';
 
+function apiHeaders(json = false): HeadersInit {
+  const headers: Record<string, string> = {};
+  const nonce = (window as { wpApiSettings?: { nonce?: string } }).wpApiSettings?.nonce;
+  if (nonce) {
+    headers['X-WP-Nonce'] = nonce;
+  }
+  if (json) {
+    headers['Content-Type'] = 'application/json';
+  }
+  return headers;
+}
+
+function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(input, {
+    credentials: 'include',
+    ...init,
+    headers: {
+      ...apiHeaders(Boolean(init.body)),
+      ...(init.headers as Record<string, string> | undefined),
+    },
+  });
+}
+
 export interface ShippingOption {
   type: 'home' | 'pickup';
   label: string;
@@ -153,7 +176,7 @@ export async function getShippingOptions(
     if (location.district) params.append('district', location.district);
   }
 
-  const response = await fetch(`${API_BASE}/shipping-options?${params.toString()}`);
+  const response = await apiFetch(`${API_BASE}/shipping-options?${params.toString()}`);
   
   if (!response.ok) {
     const error = await response.json();
@@ -167,7 +190,7 @@ export async function getShippingOptions(
  * Obtiene la lista de tiendas de recogida activas
  */
 export async function getPickupStores(): Promise<{ stores: PickupStore[] }> {
-  const response = await fetch(`${API_BASE}/pickup-stores`);
+  const response = await apiFetch(`${API_BASE}/pickup-stores`);
   
   if (!response.ok) {
     const error = await response.json();
@@ -181,12 +204,9 @@ export async function getPickupStores(): Promise<{ stores: PickupStore[] }> {
  * Crea una orden y obtiene la URL de pago
  */
 export async function createOrder(orderData: OrderData): Promise<OrderResponse> {
-  const response = await fetch(`${API_BASE}/create-order`, {
+  const response = await apiFetch(`${API_BASE}/create-order`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-WP-Nonce': (window as any).wpApiSettings?.nonce || '',
-    },
+    headers: apiHeaders(true),
     body: JSON.stringify(orderData),
   });
 
@@ -202,11 +222,7 @@ export async function createOrder(orderData: OrderData): Promise<OrderResponse> 
  * Obtiene las suscripciones del usuario actual
  */
 export async function getUserSubscriptions(): Promise<Subscription[]> {
-  const response = await fetch(`${API_BASE}/user/subscriptions`, {
-    headers: {
-      'X-WP-Nonce': (window as any).wpApiSettings?.nonce || '',
-    },
-  });
+  const response = await apiFetch(`${API_BASE}/user/subscriptions`);
 
   if (!response.ok) {
     const error = await response.json();
@@ -221,11 +237,7 @@ export async function getUserSubscriptions(): Promise<Subscription[]> {
  * Obtiene las entregas de una suscripción
  */
 export async function getSubscriptionDeliveries(subscriptionId: number): Promise<Delivery[]> {
-  const response = await fetch(`${API_BASE}/subscriptions/${subscriptionId}/deliveries`, {
-    headers: {
-      'X-WP-Nonce': (window as any).wpApiSettings?.nonce || '',
-    },
-  });
+  const response = await apiFetch(`${API_BASE}/subscriptions/${subscriptionId}/deliveries`);
 
   if (!response.ok) {
     const error = await response.json();
@@ -253,12 +265,9 @@ export async function performSubscriptionAction(
   subscriptionId: number,
   action: SubscriptionActionType
 ): Promise<SubscriptionActionResponse> {
-  const response = await fetch(`${API_BASE}/subscriptions/${subscriptionId}/action`, {
+  const response = await apiFetch(`${API_BASE}/subscriptions/${subscriptionId}/action`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-WP-Nonce': (window as any).wpApiSettings?.nonce || '',
-    },
+    headers: apiHeaders(true),
     body: JSON.stringify({ action }),
   });
 
@@ -278,7 +287,7 @@ export async function getLocationData(): Promise<{
   municipalities: Record<string, string[]>;
   districts: Record<string, Record<string, string[]>>;
 }> {
-  const response = await fetch(`${API_BASE}/locations`);
+  const response = await apiFetch(`${API_BASE}/locations`);
   
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
@@ -292,11 +301,7 @@ export async function getLocationData(): Promise<{
  * Obtiene los metadatos del usuario actual
  */
 export async function getCurrentUserData(): Promise<UserMetadata> {
-  const response = await fetch(`${API_BASE}/user/data`, {
-    headers: {
-      'X-WP-Nonce': (window as any).wpApiSettings?.nonce || '',
-    },
-  });
+  const response = await apiFetch(`${API_BASE}/user/data`);
   
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
@@ -310,7 +315,7 @@ export async function getCurrentUserData(): Promise<UserMetadata> {
  * Obtiene el fee de la pasarela activa
  */
 export async function getGatewayFee(): Promise<{ fee: number; fee_percent: number; fee_fixed: number }> {
-  const response = await fetch(`${API_BASE}/gateway-fee`);
+  const response = await apiFetch(`${API_BASE}/gateway-fee`);
   
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
@@ -324,11 +329,7 @@ export async function getGatewayFee(): Promise<{ fee: number; fee_percent: numbe
  * Obtiene los detalles de una suscripción
  */
 export async function getSubscriptionDetails(subscriptionId: number): Promise<any> {
-  const response = await fetch(`${API_BASE}/subscriptions/${subscriptionId}`, {
-    headers: {
-      'X-WP-Nonce': (window as any).wpApiSettings?.nonce || '',
-    },
-  });
+  const response = await apiFetch(`${API_BASE}/subscriptions/${subscriptionId}`);
   
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
@@ -356,11 +357,7 @@ export interface UserAddress {
  * Obtiene las direcciones de entrega del usuario
  */
 export async function getUserAddresses(): Promise<{ addresses: UserAddress[] }> {
-  const response = await fetch(`${API_BASE}/user/addresses`, {
-    headers: {
-      'X-WP-Nonce': (window as any).wpApiSettings?.nonce || '',
-    },
-  });
+  const response = await apiFetch(`${API_BASE}/user/addresses`);
   
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
@@ -382,12 +379,9 @@ export async function saveUserAddress(address: {
   address: string;
   is_default?: number;
 }): Promise<{ success: boolean; address_id: number; message: string }> {
-  const response = await fetch(`${API_BASE}/user/addresses`, {
+  const response = await apiFetch(`${API_BASE}/user/addresses`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-WP-Nonce': (window as any).wpApiSettings?.nonce || '',
-    },
+    headers: apiHeaders(true),
     body: JSON.stringify(address),
   });
   
@@ -411,12 +405,9 @@ export async function updateUserAddress(addressId: number, address: {
   address: string;
   is_default?: number;
 }): Promise<{ success: boolean; message: string }> {
-  const response = await fetch(`${API_BASE}/user/addresses/${addressId}`, {
+  const response = await apiFetch(`${API_BASE}/user/addresses/${addressId}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-WP-Nonce': (window as any).wpApiSettings?.nonce || '',
-    },
+    headers: apiHeaders(true),
     body: JSON.stringify(address),
   });
   

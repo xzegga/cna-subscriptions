@@ -117,7 +117,7 @@ class CNA_REST_Controller
         register_rest_route(self::NAMESPACE , '/create-order', array(
             'methods' => 'POST',
             'callback' => array($this, 'create_order'),
-            'permission_callback' => array($this, 'check_rate_limit'), // Rate limiting básico
+            'permission_callback' => array($this, 'check_create_order_permission'),
         ));
 
         // GET /payment-return (Return URL de Pagadito)
@@ -132,8 +132,7 @@ class CNA_REST_Controller
             'methods' => 'POST',
             'callback' => array($this, 'handle_pagadito_webhook'),
             'permission_callback' => '__return_true', // Público, validación interna
-            // Nota: La validación de origen del webhook debe implementarse según
-            // la documentación específica de Pagadito (firma, IP whitelist, etc.)
+            // Firma asimétrica Pagadito (PAGADITO-SIGNATURE) verificada en handle_pagadito_webhook.
         ));
 
         // GET /user/subscriptions
@@ -202,14 +201,14 @@ class CNA_REST_Controller
         register_rest_route(self::NAMESPACE , '/register', array(
             'methods' => 'POST',
             'callback' => array($this, 'register_user'),
-            'permission_callback' => '__return_true', // Público, validación interna
+            'permission_callback' => array($this, 'check_register_rate_limit'),
         ));
 
         // POST /login
         register_rest_route(self::NAMESPACE , '/login', array(
             'methods' => 'POST',
             'callback' => array($this, 'login_user'),
-            'permission_callback' => '__return_true', // Público, validación interna
+            'permission_callback' => array($this, 'check_login_rate_limit'),
         ));
 
         // GET /user/data
@@ -395,9 +394,7 @@ class CNA_REST_Controller
      */
     public function create_order($request)
     {
-        // Log inicial de la petición
-        error_log('CNA create_order: Iniciando creación de orden');
-        error_log('CNA create_order: Request data: ' . print_r($request->get_json_params(), true));
+        CNA_Security::debug_log('CNA create_order: Iniciando creación de orden');
 
         $data = $request->get_json_params();
 
@@ -405,8 +402,6 @@ class CNA_REST_Controller
         $required = array('product_id', 'user_id', 'variant', 'shipping');
         foreach ($required as $field) {
             if (empty($data[$field])) {
-                $error_msg = sprintf('Campo requerido faltante: %s', $field);
-                error_log('CNA create_order ERROR: ' . $error_msg);
                 return new WP_Error(
                     'missing_field',
                     sprintf(__('Campo requerido faltante: %s', 'cna-subscriptions'), $field),
@@ -422,27 +417,21 @@ class CNA_REST_Controller
         $billing = isset($data['billing']) ? $data['billing'] : null; // {address_1, city, state, reference}
         $user_metadata = isset($data['user_metadata']) ? $data['user_metadata'] : null; // {first_name, last_name, user_email, nationality}
 
-        // Validar que el usuario existe y está autenticado
         $current_user_id = get_current_user_id();
         if ($current_user_id === 0) {
-            // Si no hay usuario autenticado, verificar que el user_id sea válido
-            $user = get_user_by('id', $user_id);
-            if (!$user) {
-                return new WP_Error(
-                    'invalid_user',
-                    __('Usuario no válido', 'cna-subscriptions'),
-                    array('status' => 401)
-                );
-            }
-        } else {
-            // Si hay usuario autenticado, verificar que coincida con el user_id enviado
-            if ($current_user_id !== $user_id) {
-                return new WP_Error(
-                    'unauthorized',
-                    __('No autorizado para crear suscripciones para este usuario', 'cna-subscriptions'),
-                    array('status' => 403)
-                );
-            }
+            return new WP_Error(
+                'unauthorized',
+                __('Debes iniciar sesión para crear una suscripción', 'cna-subscriptions'),
+                array('status' => 401)
+            );
+        }
+
+        if ($current_user_id !== $user_id) {
+            return new WP_Error(
+                'unauthorized',
+                __('No autorizado para crear suscripciones para este usuario', 'cna-subscriptions'),
+                array('status' => 403)
+            );
         }
 
         // Verificar que el producto existe y está publicado
@@ -511,12 +500,9 @@ class CNA_REST_Controller
             );
         }
 
-        if ($advance_percent < 0 || $advance_percent > 100) {
-            return new WP_Error(
-                'invalid_advance_percent',
-                __('El porcentaje de anticipo debe estar entre 0 y 100', 'cna-subscriptions'),
-                array('status' => 400)
-            );
+        $variant_validation = CNA_Security::validate_variant_for_product($product_id, $variant);
+        if (is_wp_error($variant_validation)) {
+            return $variant_validation;
         }
 
         // Validar estructura de shipping
@@ -536,14 +522,19 @@ class CNA_REST_Controller
             );
         }
 
-        // Calcular precios
-        error_log('CNA create_order: Calculando totales de la orden');
+        $shipping_validation = CNA_Security::validate_shipping_for_order($product_id, $shipping);
+        if (is_wp_error($shipping_validation)) {
+            return $shipping_validation;
+        }
+
         $prices = $this->calculate_order_totals($product_id, $variant, $shipping);
 
         if (is_wp_error($prices)) {
             $error_msg = $prices->get_error_message();
-            error_log('CNA create_order ERROR cálculo: ' . $error_msg);
-            error_log('CNA create_order ERROR cálculo code: ' . $prices->get_error_code());
+            CNA_Security::debug_log('CNA create_order ERROR cálculo', array(
+                'code' => $prices->get_error_code(),
+                'message' => $error_msg,
+            ));
 
             // Log de error en cálculo
             CNA_Audit_Logger::log(
@@ -559,8 +550,6 @@ class CNA_REST_Controller
             );
             return $prices;
         }
-
-        error_log('CNA create_order: Totales calculados: ' . print_r($prices, true));
 
         // Log de cálculo exitoso
         CNA_Audit_Logger::log(
@@ -579,7 +568,7 @@ class CNA_REST_Controller
         // Actualizar metadatos del usuario si se enviaron
         // Se actualizan siempre para permitir edición de campos existentes
         if ($user_metadata && is_array($user_metadata)) {
-            error_log('CNA create_order: Actualizando metadatos del usuario');
+            CNA_Security::debug_log('CNA create_order: Actualizando metadatos del usuario');
             if (isset($user_metadata['first_name']) && $user_metadata['first_name'] !== '') {
                 update_user_meta($user_id, 'first_name', sanitize_text_field($user_metadata['first_name']));
             }
@@ -587,10 +576,11 @@ class CNA_REST_Controller
                 update_user_meta($user_id, 'last_name', sanitize_text_field($user_metadata['last_name']));
             }
             if (isset($user_metadata['user_email']) && !empty($user_metadata['user_email']) && is_email($user_metadata['user_email'])) {
-                wp_update_user(array(
-                    'ID' => $user_id,
-                    'user_email' => sanitize_email($user_metadata['user_email']),
-                ));
+                $current_user = get_userdata($user_id);
+                $requested_email = sanitize_email($user_metadata['user_email']);
+                if ($current_user && strtolower($current_user->user_email) === strtolower($requested_email)) {
+                    // No-op: mismo correo, evita cambio de cuenta vía checkout.
+                }
             }
             if (isset($user_metadata['nationality']) && $user_metadata['nationality'] !== '') {
                 update_user_meta($user_id, 'nationality', sanitize_text_field($user_metadata['nationality']));
@@ -598,7 +588,7 @@ class CNA_REST_Controller
             // Guardar teléfono siempre que se envíe (incluso si ya existe, para permitir edición)
             if (isset($user_metadata['phone']) && $user_metadata['phone'] !== '') {
                 update_user_meta($user_id, 'phone', sanitize_text_field($user_metadata['phone']));
-                error_log('CNA create_order: Teléfono guardado/actualizado: ' . $user_metadata['phone']);
+                CNA_Security::debug_log('CNA create_order: Teléfono guardado/actualizado');
             }
         }
 
@@ -701,7 +691,6 @@ class CNA_REST_Controller
             'is_auto_renew' => isset($data['auto_renew']) ? (int) $data['auto_renew'] : 1,
         );
 
-        error_log('CNA create_order: Intentando insertar suscripción en BD');
         $result = $wpdb->insert(
             $table_prefix . 'cna_subscriptions',
             $subscription_data,
@@ -709,9 +698,7 @@ class CNA_REST_Controller
         );
 
         if (!$result) {
-            $db_error = $wpdb->last_error;
-            error_log('CNA create_order ERROR DB: ' . $db_error);
-            error_log('CNA create_order ERROR DB Query: ' . $wpdb->last_query);
+            CNA_Security::debug_log('CNA create_order ERROR DB', array('error' => $wpdb->last_error));
             return new WP_Error(
                 'db_error',
                 __('Error al crear la suscripción', 'cna-subscriptions'),
@@ -720,7 +707,7 @@ class CNA_REST_Controller
         }
 
         $subscription_id = $wpdb->insert_id;
-        error_log('CNA create_order: Suscripción creada con ID: ' . $subscription_id);
+        CNA_Security::debug_log('CNA create_order: Suscripción creada', array('id' => $subscription_id));
 
         // Log de creación de orden
         CNA_Audit_Logger::log(
@@ -744,12 +731,8 @@ class CNA_REST_Controller
             CNA_Mailer::send_admin_new_subscription($subscription_id);
         }
 
-        // Verificar si Payment Sandbox está activo
-        $payment_sandbox = get_option('cna_payment_sandbox', '0') === '1';
-        
-        if ($payment_sandbox) {
-            // Modo Sandbox: Saltar Pagadito y emular respuesta exitosa
-            error_log('CNA create_order: Payment Sandbox activo - Emulando respuesta exitosa');
+        if (CNA_Security::is_payment_sandbox_allowed()) {
+            CNA_Security::debug_log('CNA create_order: Payment Sandbox activo');
             
             // Emular respuesta exitosa de Pagadito
             $mock_response = array(
@@ -783,6 +766,11 @@ class CNA_REST_Controller
         // Crear transacción en Pagadito con tokenización
         $pagadito_client = new CNA_Pagadito_Client();
 
+        // Generate a short-lived HMAC state token for the payment return URL so that the
+        // return handler can verify the request was initiated by this checkout flow.
+        $payment_state = hash_hmac('sha256', $subscription_id . '|' . $user_id, wp_salt('nonce'));
+        set_transient('cna_ps_' . $subscription_id, $payment_state, DAY_IN_SECONDS);
+
         $transaction_data = array(
             'amount' => $prices['total_with_fee'],
             'description' => sprintf(
@@ -791,6 +779,7 @@ class CNA_REST_Controller
                 get_the_title($product_id)
             ),
             'subscription_id' => $subscription_id,
+            'state' => $payment_state,
             'custom_params' => array(
                 'param1' => $subscription_id,  // subscription_id
                 'param2' => $product_id,       // product_id
@@ -808,21 +797,15 @@ class CNA_REST_Controller
             array('%d')
         );
 
-        error_log('CNA create_order: Llamando a Pagadito para crear transacción tokenizada');
-        error_log('CNA create_order: Transaction data: ' . print_r($transaction_data, true));
+        CNA_Security::debug_log('CNA create_order: Llamando a Pagadito');
         $pagadito_response = $pagadito_client->create_tokenized_transaction($transaction_data);
 
         if (is_wp_error($pagadito_response)) {
             $error_msg = $pagadito_response->get_error_message();
-            error_log('CNA create_order ERROR Pagadito: ' . $error_msg);
-            error_log('CNA create_order ERROR Pagadito Code: ' . $pagadito_response->get_error_code());
-            $error_details = $pagadito_response->get_error_data();
-            if (!empty($error_details['http'])) {
-                error_log('CNA create_order ERROR Pagadito HTTP: ' . print_r($error_details['http'], true));
-            }
-            if (!empty($error_details['response'])) {
-                error_log('CNA create_order ERROR Pagadito Response: ' . print_r($error_details['response'], true));
-            }
+            CNA_Security::debug_log('CNA create_order ERROR Pagadito', array(
+                'code' => $pagadito_response->get_error_code(),
+                'message' => $error_msg,
+            ));
 
             // Marcar suscripción como fallida
             $wpdb->update(
@@ -849,12 +832,10 @@ class CNA_REST_Controller
             return $pagadito_response;
         }
 
-        error_log('CNA create_order: Respuesta de Pagadito recibida: ' . print_r($pagadito_response, true));
         $payment_url = CNA_Pagadito_Client::get_payment_url($pagadito_response);
 
         if (!$payment_url) {
-            error_log('CNA create_order ERROR: No se pudo extraer payment_url de la respuesta de Pagadito');
-            error_log('CNA create_order ERROR: Respuesta completa: ' . print_r($pagadito_response, true));
+            CNA_Security::debug_log('CNA create_order ERROR: No se pudo extraer payment_url');
             return new WP_Error(
                 'no_payment_url',
                 __('No se pudo obtener la URL de pago', 'cna-subscriptions'),
@@ -862,7 +843,7 @@ class CNA_REST_Controller
             );
         }
 
-        error_log('CNA create_order: Payment URL obtenida exitosamente: ' . $payment_url);
+        CNA_Security::debug_log('CNA create_order: Payment URL obtenida');
 
         // Guardar ern (número de orden de Pagadito) en la suscripción
         if (isset($pagadito_response['ern'])) {
@@ -873,7 +854,7 @@ class CNA_REST_Controller
                 array('%s'),
                 array('%d')
             );
-            error_log('CNA create_order: ERN guardado: ' . $pagadito_response['ern']);
+            CNA_Security::debug_log('CNA create_order: ERN guardado', array('ern' => $pagadito_response['ern']));
         }
 
         // Guardar ID de transacción de Pagadito (si viene en la respuesta)
@@ -965,58 +946,58 @@ class CNA_REST_Controller
      */
     public function handle_payment_return($request)
     {
-        $status = $request->get_param('status');
-        $transaction_id = $request->get_param('transaction_id');
-        $token = $request->get_param('token');
+        CNA_Security::debug_log('CNA payment_return: Retorno de Pagadito recibido');
 
-        error_log('CNA payment_return: Retorno de Pagadito recibido');
-        error_log('CNA payment_return: query_params=' . wp_json_encode($request->get_query_params()));
+        // Require the user to be logged in before we expose any subscription information.
+        if (!is_user_logged_in()) {
+            $redirect_to = urlencode(add_query_arg($request->get_query_params(), rest_url('cna/v1/payment-return')));
+            wp_safe_redirect(home_url('/mi-cuenta?redirect_to=' . $redirect_to));
+            exit;
+        }
 
         $subscription = $this->resolve_subscription_from_payment_return($request);
 
         if (!$subscription) {
-            error_log('CNA payment_return: No se pudo resolver la suscripción');
+            CNA_Security::debug_log('CNA payment_return: No se pudo resolver la suscripción');
             wp_safe_redirect(home_url('/confirmacion-orden?error=subscription_not_found'));
             exit;
         }
 
-        $subscription_id = $subscription->id;
-        error_log('CNA payment_return: Suscripción resuelta ID=' . $subscription_id);
-
-        if (empty($subscription->payment_transaction_json) && class_exists('CNA_Payment_Transaction')) {
-            $return_payload = array_merge(
-                $request->get_query_params(),
-                array_filter(array(
-                    'transaction_id' => $transaction_id,
-                    'token' => $token,
-                    'status' => $status,
-                    'currency' => 'USD',
-                ))
-            );
-            CNA_Payment_Transaction::save_from_webhook(
-                $subscription_id,
-                $this->resolve_payment_provider_slug(),
-                $return_payload
-            );
+        // Enforce ownership: the logged-in user must own this subscription.
+        if ((int) get_current_user_id() !== (int) $subscription->user_id) {
+            CNA_Security::debug_log('CNA payment_return: usuario no autorizado', array('subscription_id' => $subscription->id));
+            wp_safe_redirect(home_url('/confirmacion-orden?error=unauthorized'));
+            exit;
         }
 
-        // Si el estado es cancelled o failed, redirigir a página de error/cancelación
+        $subscription_id = $subscription->id;
+        CNA_Security::debug_log('CNA payment_return: Suscripción resuelta', array('id' => $subscription_id));
+
+        // Verify HMAC state token if present (prevents URL-guessing IDOR via crafted return URLs).
+        $state = $request->get_param('state');
+        if (!empty($state)) {
+            $expected_state = get_transient('cna_ps_' . $subscription_id);
+            if ($expected_state === false || !hash_equals($expected_state, $state)) {
+                CNA_Security::debug_log('CNA payment_return: state inválido', array('subscription_id' => $subscription_id));
+                wp_safe_redirect(home_url('/confirmacion-orden?error=invalid_state'));
+                exit;
+            }
+        }
+
+        // Do NOT persist any transaction data from return URL query params — only signed
+        // webhooks may write payment records.
+        $status = $request->get_param('status');
+
         if ($status === 'cancelled' || $status === 'failed') {
-            error_log('CNA payment_return: Pago cancelado o fallido');
+            CNA_Security::debug_log('CNA payment_return: Pago cancelado o fallido');
             wp_safe_redirect(home_url('/confirmacion-orden?subscription_id=' . $subscription_id . '&status=cancelled'));
             exit;
         }
 
-        // Para cualquier otro caso (success, completed, o sin status), redirigir a confirmación
-        // Si la suscripción ya está activa, mostrar confirmación normal
-        // Si aún está pendiente, mostrar mensaje de procesamiento
         if ($subscription->status === 'active') {
-            error_log('CNA payment_return: Suscripción activa, redirigiendo a confirmación');
             wp_safe_redirect(home_url('/confirmacion-orden?subscription_id=' . $subscription_id));
             exit;
         } else {
-            // El webhook aún no ha procesado, mostrar mensaje de espera
-            error_log('CNA payment_return: Suscripción pendiente, mostrando estado de procesamiento');
             wp_safe_redirect(home_url('/confirmacion-orden?subscription_id=' . $subscription_id . '&status=processing'));
             exit;
         }
@@ -1028,19 +1009,43 @@ class CNA_REST_Controller
      */
     public function handle_pagadito_webhook($request)
     {
+        $raw_body = $request->get_body();
+        if (!is_string($raw_body) || $raw_body === '') {
+            $raw_body = file_get_contents('php://input');
+            if (!is_string($raw_body)) {
+                $raw_body = '';
+            }
+        }
+
+        $signature_check = CNA_Pagadito_Webhook::verify_signature($request, $raw_body);
+        if (is_wp_error($signature_check)) {
+            CNA_Audit_Logger::log(
+                CNA_Audit_Logger::EVENT_WEBHOOK_RECEIVED,
+                array(
+                    'subscription_id' => 0,
+                    'error' => $signature_check->get_error_code(),
+                    'ip' => CNA_Security::get_client_ip(),
+                ),
+                CNA_Audit_Logger::SEVERITY_CRITICAL
+            );
+            return $signature_check;
+        }
+
+        $notification_id = CNA_Pagadito_Webhook::get_header($request, CNA_Pagadito_Webhook::HEADER_NOTIFICATION_ID);
+
         // Validación de IP opcional (si está habilitada)
         $ip_validation_enabled = get_option('cna_pagadito_validate_ip', false);
 
         if ($ip_validation_enabled) {
             $allowed_ips = get_option('cna_pagadito_allowed_ips', '');
-            $client_ip = $this->get_client_ip();
+            $client_ip = CNA_Security::get_client_ip();
 
             if (!empty($allowed_ips)) {
                 $allowed_ips_array = array_map('trim', explode("\n", $allowed_ips));
                 $allowed_ips_array = array_filter($allowed_ips_array);
 
                 if (!empty($allowed_ips_array) && !in_array($client_ip, $allowed_ips_array)) {
-                    error_log('CNA webhook: IP no permitida: ' . $client_ip);
+                    CNA_Security::debug_log('CNA webhook: IP no permitida', array('ip' => $client_ip));
 
                     CNA_Audit_Logger::log(
                         CNA_Audit_Logger::EVENT_WEBHOOK_RECEIVED,
@@ -1069,7 +1074,7 @@ class CNA_REST_Controller
                 array(
                     'subscription_id' => 0,
                     'error' => 'Webhook recibido sin HTTPS',
-                    'ip' => $this->get_client_ip(),
+                    'ip' => CNA_Security::get_client_ip(),
                 ),
                 CNA_Audit_Logger::SEVERITY_HIGH
             );
@@ -1107,18 +1112,12 @@ class CNA_REST_Controller
             }
         }
 
-        $data = $request->get_json_params();
-
-        // Si no viene JSON, intentar leer del body raw o parámetros POST
-        if (empty($data)) {
-            $body = $request->get_body();
-            $data = json_decode($body, true);
+        $data = json_decode($raw_body, true);
+        if (!is_array($data)) {
+            $data = $request->get_json_params();
         }
         if (empty($data) || !is_array($data)) {
             $data = $request->get_body_params();
-        }
-        if (empty($data) || !is_array($data)) {
-            $data = $_POST;
         }
 
         if (!empty($data['custom_params']) && is_array($data['custom_params'])) {
@@ -1129,17 +1128,22 @@ class CNA_REST_Controller
             }
         }
 
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('CNA webhook pagadito payload: ' . wp_json_encode(self::redact_webhook_payload($data)));
-        }
+        CNA_Security::debug_log('CNA webhook pagadito payload', self::redact_webhook_payload($data));
 
-        // Validar que venga información básica
         if (empty($data) || !is_array($data)) {
             return new WP_Error(
                 'invalid_webhook',
                 __('Datos de webhook inválidos', 'cna-subscriptions'),
                 array('status' => 400)
             );
+        }
+
+        $event_id = isset($data['id']) ? (string) $data['id'] : '';
+        if (CNA_Pagadito_Webhook::is_notification_processed($notification_id, $event_id)) {
+            return rest_ensure_response(array(
+                'message' => __('Notificación ya procesada', 'cna-subscriptions'),
+                'already_processed' => true,
+            ));
         }
 
         // Formato oficial: { id, event_type, event_create_timestamp, resource: { ern, status, reference, ... } }
@@ -1191,11 +1195,58 @@ class CNA_REST_Controller
             );
         }
 
-        // Procesar según el estado (oficial: COMPLETED, VERIFIED, REJECTED, EXPIRED)
         if (in_array($status, array('completed', 'verified', 'approved', 'success'), true)) {
-            return $this->process_successful_payment($subscription, $data);
+            if (empty($transaction_id) && empty($resource['reference'] ?? '')) {
+                return new WP_Error(
+                    'missing_transaction_reference',
+                    __('Referencia de transacción requerida', 'cna-subscriptions'),
+                    array('status' => 400)
+                );
+            }
+
+            $amount_check = $this->validate_webhook_payment_amount($subscription, $resource);
+            if (is_wp_error($amount_check)) {
+                return $amount_check;
+            }
+
+            // Outbound confirmation: verify status directly with Pagadito before activating the
+            // subscription. If the API call fails, return 502 so Pagadito will retry the webhook.
+            $reference = !empty($resource['reference']) ? $resource['reference'] : $transaction_id;
+            if (!empty($reference)) {
+                $pagadito_client = new CNA_Pagadito_Client();
+                $remote_status = $pagadito_client->get_transaction_status($reference);
+                if (is_wp_error($remote_status)) {
+                    CNA_Security::debug_log('CNA webhook: fallo al verificar estado con Pagadito API', array('reference' => $reference));
+                    return new WP_Error(
+                        'pagadito_status_unavailable',
+                        __('No se pudo confirmar el estado del pago con Pagadito', 'cna-subscriptions'),
+                        array('status' => 502)
+                    );
+                }
+                if (is_array($remote_status)) {
+                    $remote_status_value = strtolower((string) ($remote_status['status'] ?? $remote_status['rs_code'] ?? ''));
+                    if (!in_array($remote_status_value, array('completed', 'verified', 'approved', 'success', 'pg1003'), true)) {
+                        CNA_Security::debug_log('CNA webhook: Pagadito reporta estado no confirmado', array('remote_status' => $remote_status_value));
+                        return new WP_Error(
+                            'pagadito_status_not_completed',
+                            __('El pago no ha sido confirmado por Pagadito', 'cna-subscriptions'),
+                            array('status' => 400)
+                        );
+                    }
+                }
+            }
+
+            $result = $this->process_successful_payment($subscription, $data);
+            if (!is_wp_error($result)) {
+                CNA_Pagadito_Webhook::mark_notification_processed($notification_id, $event_id);
+            }
+            return $result;
         } elseif (in_array($status, array('failed', 'rejected', 'cancelled', 'expired'), true)) {
-            return $this->process_failed_payment($subscription, $data);
+            $result = $this->process_failed_payment($subscription, $data);
+            if (!is_wp_error($result)) {
+                CNA_Pagadito_Webhook::mark_notification_processed($notification_id, $event_id);
+            }
+            return $result;
         }
 
         // Estado desconocido, solo loguear
@@ -1203,6 +1254,51 @@ class CNA_REST_Controller
             'message' => __('Webhook recibido pero estado no procesado', 'cna-subscriptions'),
             'status' => $status,
         ));
+    }
+
+    /**
+     * Validates that Pagadito-reported amount matches the subscription charge (tolerance 0.02).
+     *
+     * @param object $subscription
+     * @param array  $resource
+     * @return true|WP_Error
+     */
+    private function validate_webhook_payment_amount($subscription, $resource)
+    {
+        if (empty($resource['amount']) || !is_array($resource['amount'])) {
+            return true;
+        }
+
+        $reported = isset($resource['amount']['total']) ? floatval($resource['amount']['total']) : 0.0;
+        if ($reported <= 0) {
+            return true;
+        }
+
+        $expected = floatval($subscription->total_with_fee);
+        if ($expected <= 0) {
+            return true;
+        }
+
+        if (abs($reported - $expected) > 0.02) {
+            CNA_Audit_Logger::log(
+                CNA_Audit_Logger::EVENT_PAYMENT_FAILED,
+                array(
+                    'subscription_id' => (int) $subscription->id,
+                    'error' => 'Monto del webhook no coincide con la suscripción',
+                    'expected' => $expected,
+                    'reported' => $reported,
+                ),
+                CNA_Audit_Logger::SEVERITY_CRITICAL
+            );
+
+            return new WP_Error(
+                'payment_amount_mismatch',
+                __('El monto reportado por Pagadito no coincide con la orden', 'cna-subscriptions'),
+                array('status' => 400)
+            );
+        }
+
+        return true;
     }
 
     /**
@@ -1221,7 +1317,7 @@ class CNA_REST_Controller
         ));
 
         if (!$subscription) {
-            error_log('CNA process_successful_payment_sandbox: Suscripción no encontrada');
+            CNA_Security::debug_log('CNA process_successful_payment_sandbox: Suscripción no encontrada', array('id' => $subscription_id));
             return false;
         }
 
@@ -1250,7 +1346,7 @@ class CNA_REST_Controller
             ));
 
             if (!$subscription) {
-                error_log('CNA create_delivery_dates_for_subscription: Suscripción #' . $subscription_id . ' no encontrada');
+                CNA_Security::debug_log('CNA create_delivery_dates_for_subscription: Suscripción no encontrada', array('id' => $subscription_id));
                 return 0;
             }
 
@@ -1282,7 +1378,7 @@ class CNA_REST_Controller
         }
 
         if (!$variant || !is_array($variant)) {
-            error_log('CNA create_delivery_dates_for_subscription: No se pudieron obtener los detalles de la variante para suscripción #' . $subscription_id);
+            CNA_Security::debug_log('CNA create_delivery_dates_for_subscription: Variante no disponible', array('id' => $subscription_id));
             return 0;
         }
 
@@ -1308,7 +1404,7 @@ class CNA_REST_Controller
         );
 
         if (empty($delivery_dates)) {
-            error_log('CNA create_delivery_dates_for_subscription: No se calcularon fechas de entrega para suscripción #' . $subscription_id);
+            CNA_Security::debug_log('CNA create_delivery_dates_for_subscription: Sin fechas calculadas', array('id' => $subscription_id));
             return 0;
         }
 
@@ -1366,15 +1462,14 @@ class CNA_REST_Controller
             if ($insert_result !== false) {
                 $deliveries_created++;
             } else {
-                error_log('CNA create_delivery_dates_for_subscription: Error al insertar entrega para fecha ' . $date . ' - ' . $wpdb->last_error);
+                CNA_Security::debug_log('CNA create_delivery_dates: error al insertar entrega', array('date' => $date, 'error' => $wpdb->last_error));
             }
         }
-        
-        error_log(sprintf(
-            'CNA create_delivery_dates_for_subscription: Suscripción #%d - %d entregas creadas de %d fechas calculadas',
-            $subscription_id,
-            $deliveries_created,
-            count($delivery_dates)
+
+        CNA_Security::debug_log('CNA create_delivery_dates_for_subscription', array(
+            'subscription_id' => $subscription_id,
+            'created' => $deliveries_created,
+            'total' => count($delivery_dates),
         ));
 
         return $deliveries_created;
@@ -1387,6 +1482,14 @@ class CNA_REST_Controller
     {
         global $wpdb;
         $table_prefix = $wpdb->prefix;
+
+        if ($subscription->status === 'active') {
+            return rest_ensure_response(array(
+                'message' => __('Pago ya procesado anteriormente', 'cna-subscriptions'),
+                'subscription_id' => $subscription->id,
+                'already_active' => true,
+            ));
+        }
 
         // Extraer token si viene en la respuesta
         $token = CNA_Pagadito_Client::extract_token($webhook_data);
@@ -1462,10 +1565,9 @@ class CNA_REST_Controller
             // No hay entregas existentes, crearlas
             $this->create_delivery_dates_for_subscription($subscription->id, null, $subscription->product_id);
         } else {
-            error_log(sprintf(
-                'CNA process_successful_payment: Suscripción #%d ya tiene %d entregas, no se crearán duplicados',
-                $subscription->id,
-                $existing_deliveries
+            CNA_Security::debug_log('CNA process_successful_payment: entregas existentes, no se duplican', array(
+                'subscription_id' => $subscription->id,
+                'existing' => $existing_deliveries,
             ));
         }
 
@@ -1582,9 +1684,15 @@ class CNA_REST_Controller
         $annual_fee = floatval(get_post_meta($product_id, '_cna_annual_fee', true));
 
         // Costo de envío
+        // Shipping validation is performed before this method in create_order. This block is
+        // defense-in-depth: it fails explicitly rather than silently falling back to $0.
+        $shipping_validation = CNA_Security::validate_shipping_for_order($product_id, $shipping);
+        if (is_wp_error($shipping_validation)) {
+            return $shipping_validation;
+        }
+
         $shipping_unit = 0;
         if ($shipping['type'] === 'home') {
-            // Obtener precio de envío
             $locations_helper = new CNA_Locations_Helper();
             $country = isset($shipping['country']) ? $shipping['country'] : 'El Salvador';
             $zone_id = $locations_helper->find_zone_by_location(
@@ -1594,34 +1702,15 @@ class CNA_REST_Controller
                 $country
             );
 
+            // Zone and price are guaranteed to exist by validate_shipping_for_order above.
             if ($zone_id) {
                 $shipping_prices = get_post_meta($product_id, '_cna_shipping_prices', true);
                 if (is_array($shipping_prices) && isset($shipping_prices[$zone_id])) {
                     $shipping_unit = floatval($shipping_prices[$zone_id]);
                 }
             }
-        } elseif ($shipping['type'] === 'pickup') {
-            // Recoger en tienda siempre es $0.00
-            $shipping_unit = 0.00;
-
-            // Validar que la tienda existe y está activa
-            if (isset($shipping['store_id'])) {
-                global $wpdb;
-                $table_prefix = $wpdb->prefix;
-                $store = $wpdb->get_row($wpdb->prepare(
-                    "SELECT id FROM {$table_prefix}cna_pickup_stores WHERE id = %d AND is_active = 1",
-                    intval($shipping['store_id'])
-                ));
-
-                if (!$store) {
-                    return new WP_Error(
-                        'invalid_store',
-                        __('La tienda seleccionada no es válida o no está disponible', 'cna-subscriptions'),
-                        array('status' => 400)
-                    );
-                }
-            }
         }
+        // pickup: $shipping_unit stays 0.00 (free store pickup)
 
         $shipping_total = $shipping_unit * $qty;
 
@@ -1687,30 +1776,53 @@ class CNA_REST_Controller
      * @param WP_REST_Request $request
      * @return bool|WP_Error
      */
+    public function check_create_order_permission($request)
+    {
+        $rate = CNA_Security::rate_limit_by_ip('create_order', 10, 60);
+        if (is_wp_error($rate)) {
+            return $rate;
+        }
+
+        return $this->check_user_permission($request);
+    }
+
+    /**
+     * @param WP_REST_Request $request
+     * @return true|WP_Error
+     */
+    public function check_register_rate_limit($request)
+    {
+        // 3 registrations per hour per IP.
+        return CNA_Security::rate_limit_by_ip('register', 3, HOUR_IN_SECONDS);
+    }
+
+    /**
+     * @param WP_REST_Request $request
+     * @return true|WP_Error
+     */
+    public function check_login_rate_limit($request)
+    {
+        // 5 attempts per 15 minutes per IP.
+        $ip_check = CNA_Security::rate_limit_by_ip('login', 5, 15 * MINUTE_IN_SECONDS);
+        if (is_wp_error($ip_check)) {
+            return $ip_check;
+        }
+
+        // 5 attempts per 15 minutes per email (prevents distributed IP attacks against one account).
+        $data = $request->get_json_params();
+        if (!empty($data['email'])) {
+            return CNA_Security::rate_limit_by_email('login', sanitize_email($data['email']), 5, 15 * MINUTE_IN_SECONDS);
+        }
+
+        return true;
+    }
+
+    /**
+     * @deprecated Use CNA_Security::rate_limit_by_ip()
+     */
     public function check_rate_limit($request)
     {
-        // Rate limiting básico: máximo 10 requests por minuto por IP
-        $ip = $this->get_client_ip();
-        $transient_key = 'cna_rate_limit_' . md5($ip);
-        $requests = get_transient($transient_key);
-
-        if ($requests === false) {
-            // Primera request, crear contador
-            set_transient($transient_key, 1, 60); // 60 segundos
-            return true;
-        }
-
-        if ($requests >= 10) {
-            return new WP_Error(
-                'rate_limit_exceeded',
-                __('Demasiadas solicitudes. Por favor, intenta de nuevo en un momento.', 'cna-subscriptions'),
-                array('status' => 429)
-            );
-        }
-
-        // Incrementar contador
-        set_transient($transient_key, $requests + 1, 60);
-        return true;
+        return CNA_Security::rate_limit_by_ip('legacy', 10, 60);
     }
 
     /**
@@ -1791,6 +1903,12 @@ class CNA_REST_Controller
                 array('status' => 401)
             );
         }
+
+        $nonce_check = CNA_Security::verify_rest_nonce($request);
+        if (is_wp_error($nonce_check)) {
+            return $nonce_check;
+        }
+
         return true;
     }
 
@@ -2312,6 +2430,11 @@ class CNA_REST_Controller
     {
         $data = $request->get_json_params();
 
+        // Honeypot: bots fill in hidden fields; real users do not.
+        if (!empty($data['website'])) {
+            return new WP_Error('registration_failed', __('Error al registrar el usuario', 'cna-subscriptions'), array('status' => 400));
+        }
+
         // Validar datos requeridos
         if (empty($data['email']) || empty($data['password'])) {
             return new WP_Error(
@@ -2335,20 +2458,36 @@ class CNA_REST_Controller
             );
         }
 
-        // Validar contraseña
-        if (strlen($password) < 6) {
+        if (!is_string($password) || trim($password) === '') {
             return new WP_Error(
                 'weak_password',
-                __('La contraseña debe tener al menos 6 caracteres', 'cna-subscriptions'),
+                __('La contraseña es requerida', 'cna-subscriptions'),
                 array('status' => 400)
             );
         }
 
-        // Verificar si el email ya existe
+        if (strlen($password) < 10) {
+            return new WP_Error(
+                'weak_password',
+                __('La contraseña debe tener al menos 10 caracteres', 'cna-subscriptions'),
+                array('status' => 400)
+            );
+        }
+
+        // Require at least one letter and one digit.
+        if (!preg_match('/[a-zA-Z]/', $password) || !preg_match('/[0-9]/', $password)) {
+            return new WP_Error(
+                'weak_password',
+                __('La contraseña debe contener al menos una letra y un número', 'cna-subscriptions'),
+                array('status' => 400)
+            );
+        }
+
+        // Verificar si el email ya existe — use a generic message to avoid email enumeration.
         if (email_exists($email)) {
             return new WP_Error(
-                'email_exists',
-                __('Este correo electrónico ya está registrado', 'cna-subscriptions'),
+                'registration_failed',
+                __('No fue posible completar el registro. Intenta con un correo diferente.', 'cna-subscriptions'),
                 array('status' => 400)
             );
         }
@@ -2368,10 +2507,14 @@ class CNA_REST_Controller
         if (is_wp_error($user_id)) {
             return new WP_Error(
                 'registration_failed',
-                $user_id->get_error_message(),
+                __('Error al registrar el usuario', 'cna-subscriptions'),
                 array('status' => 400)
             );
         }
+
+        // Ensure newly registered users have the least-privileged role.
+        $user = new WP_User($user_id);
+        $user->set_role('subscriber');
 
         // Enviar email de bienvenida
         if (class_exists('CNA_Mailer')) {
@@ -2425,6 +2568,11 @@ class CNA_REST_Controller
     {
         $data = $request->get_json_params();
 
+        // Honeypot: bots fill in hidden fields; real users do not.
+        if (!empty($data['website'])) {
+            return new WP_Error('invalid_credentials', __('Correo electrónico o contraseña incorrectos', 'cna-subscriptions'), array('status' => 401));
+        }
+
         // Validar datos requeridos
         if (empty($data['email']) || empty($data['password'])) {
             return new WP_Error(
@@ -2437,7 +2585,7 @@ class CNA_REST_Controller
         $email = sanitize_email($data['email']);
         $password = $data['password'];
 
-        // Obtener usuario por email
+        // Uniform error message regardless of whether the email exists — avoids enumeration.
         $user = get_user_by('email', $email);
         if (!$user) {
             return new WP_Error(

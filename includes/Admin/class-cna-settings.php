@@ -378,9 +378,16 @@ class CNA_Settings
                                                 <input type="password" 
                                                        id="pagadito_wsk" 
                                                        name="pagadito_wsk" 
-                                                       value="<?php echo esc_attr($settings['wsk'] ?? ''); ?>" 
+                                                       value="" 
+                                                       placeholder="<?php echo !empty($settings['wsk_enc']) ? esc_attr('••••••••') : ''; ?>"
+                                                       autocomplete="new-password"
                                                        class="regular-text" />
-                                                <p class="description"><?php _e('Web Service Key (Token de seguridad)', 'cna-subscriptions'); ?></p>
+                                                <p class="description">
+                                                    <?php _e('Web Service Key (Token de seguridad)', 'cna-subscriptions'); ?>
+                                                    <?php if (!empty($settings['wsk_enc'])): ?>
+                                                        — <em><?php _e('WSK guardado. Deja en blanco para no cambiar.', 'cna-subscriptions'); ?></em>
+                                                    <?php endif; ?>
+                                                </p>
                                             </td>
                                         </tr>
                                         <tr>
@@ -407,7 +414,7 @@ class CNA_Settings
                                                 <input type="number" 
                                                        id="pagadito_fee" 
                                                        name="pagadito_fee" 
-                                                       value="<?php echo esc_attr($settings['fee'] ?? '0.06'); ?>" 
+                                                       value="<?php echo esc_attr(CNA_Payment_Helper::format_decimal_for_storage($settings['fee'] ?? '0.06', 4)); ?>" 
                                                        step="0.001" 
                                                        min="0" 
                                                        max="1" 
@@ -423,11 +430,30 @@ class CNA_Settings
                                                 <input type="number"
                                                        id="pagadito_fee_fixed"
                                                        name="pagadito_fee_fixed"
-                                                       value="<?php echo esc_attr($settings['fee_fixed'] ?? '0'); ?>"
+                                                       value="<?php echo esc_attr(CNA_Payment_Helper::format_decimal_for_storage($settings['fee_fixed'] ?? '0', 2)); ?>"
                                                        step="0.01"
                                                        min="0"
                                                        class="small-text" />
                                                 <p class="description"><?php _e('Comisión fija por transacción en dólares (ej: 0.25). Se suma al porcentaje al calcular el total a cobrar.', 'cna-subscriptions'); ?></p>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <th scope="row">
+                                                <label for="pagadito_require_signature"><?php _e('Validar firma Pagadito', 'cna-subscriptions'); ?></label>
+                                            </th>
+                                            <td>
+                                                <label>
+                                                    <input type="checkbox"
+                                                           id="pagadito_require_signature"
+                                                           name="pagadito_require_signature"
+                                                           value="1"
+                                                           <?php checked(get_option('cna_pagadito_require_webhook_signature', '1'), '1'); ?> />
+                                                    <?php _e('Exigir verificación de firma asimétrica (PAGADITO-SIGNATURE)', 'cna-subscriptions'); ?>
+                                                </label>
+                                                <p class="description">
+                                                    <?php _e('Recomendado en producción. Pagadito firma cada evento con su certificado X.509; el plugin valida IdNotificación, timestamp, CRC32 del cuerpo y WSK según la documentación oficial.', 'cna-subscriptions'); ?>
+                                                    <a href="https://dev.pagadito.com/index.php?mod=docs&amp;hac=mostrar&amp;tema=webhooks" target="_blank" rel="noopener noreferrer"><?php _e('Documentación de webhooks', 'cna-subscriptions'); ?></a>
+                                                </p>
                                             </td>
                                         </tr>
                                         <tr>
@@ -461,7 +487,9 @@ class CNA_Settings
                                                     <?php _e('Ingresa una IP por línea. Solo se aplicará si la validación de IP está activada.', 'cna-subscriptions'); ?><br>
                                                     <strong><?php _e('URLs de Pagadito:', 'cna-subscriptions'); ?></strong><br>
                                                     <?php _e('Return URL:', 'cna-subscriptions'); ?> <code><?php echo esc_html(rest_url('cna/v1/payment-return')); ?></code><br>
-                                                    <?php _e('Webhook URL:', 'cna-subscriptions'); ?> <code><?php echo esc_html(rest_url('cna/v1/webhook/pagadito')); ?></code>
+                                                    <?php _e('Webhook URL (configurar en Pagadito → Webhooks):', 'cna-subscriptions'); ?>
+                                                    <code style="word-break:break-all;"><?php echo esc_html(rest_url('cna/v1/webhook/pagadito')); ?></code>
+                                                    <br><em><?php _e('La autenticidad del webhook se valida con las cabeceras PAGADITO-SIGNATURE, PAGADITO-CERT-URL y su WSK — no requiere parámetros en la URL.', 'cna-subscriptions'); ?></em>
                                                 </p>
                                             </td>
                                         </tr>
@@ -511,13 +539,26 @@ class CNA_Settings
 
             // Configuración específica según el gateway
             if ($gateway->slug === 'pagadito') {
+                $existing_settings = is_array($gateway->settings ?? null) ? $gateway->settings : array();
+
+                // If admin left WSK blank, keep the existing encrypted value.
+                $submitted_wsk = sanitize_text_field($_POST['pagadito_wsk'] ?? '');
+                if ($submitted_wsk !== '') {
+                    $wsk_enc = class_exists('CNA_Token_Encryption') ? CNA_Token_Encryption::encrypt($submitted_wsk) : $submitted_wsk;
+                } else {
+                    $wsk_enc = $existing_settings['wsk_enc'] ?? '';
+                }
+
                 $settings = array(
                     'uid' => sanitize_text_field($_POST['pagadito_uid'] ?? ''),
-                    'wsk' => sanitize_text_field($_POST['pagadito_wsk'] ?? ''),
+                    'wsk_enc' => $wsk_enc,
                     'sandbox' => isset($_POST['pagadito_sandbox']) && $_POST['pagadito_sandbox'] === '1',
-                    'fee' => floatval($_POST['pagadito_fee'] ?? '0.06'),
-                    'fee_fixed' => max(0, floatval($_POST['pagadito_fee_fixed'] ?? '0')),
+                    'fee' => CNA_Payment_Helper::format_decimal_for_storage($_POST['pagadito_fee'] ?? '0.06', 4),
+                    'fee_fixed' => CNA_Payment_Helper::format_decimal_for_storage($_POST['pagadito_fee_fixed'] ?? '0', 2),
                 );
+
+                $require_signature = isset($_POST['pagadito_require_signature']) && $_POST['pagadito_require_signature'] === '1';
+                update_option('cna_pagadito_require_webhook_signature', $require_signature ? '1' : '0');
 
                 // Guardar opciones de validación de IP (en wp_options, no en settings_json)
                 $validate_ip = isset($_POST['pagadito_validate_ip']) && $_POST['pagadito_validate_ip'] === '1';

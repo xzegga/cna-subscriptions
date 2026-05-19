@@ -24,6 +24,55 @@ class CNA_Subscriptions_Admin {
         add_action('wp_ajax_cna_delete_subscription', array($this, 'ajax_delete_subscription'));
         add_action('wp_ajax_cna_generate_deliveries', array($this, 'ajax_generate_deliveries'));
         add_action('wp_ajax_cna_get_dashboard_data', array($this, 'ajax_get_dashboard_data'));
+        add_action('admin_notices', array($this, 'maybe_show_webhook_signature_notice'));
+    }
+
+    /**
+     * Adds SRI integrity and crossorigin attributes to CDN scripts loaded by the dashboard.
+     *
+     * @param string $tag    HTML script tag.
+     * @param string $handle Script handle.
+     * @return string
+     */
+    public function add_cdn_sri_attributes($tag, $handle) {
+        $sri = array(
+            'chartjs'  => 'sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g',
+            'date-fns' => 'sha384-5CPBdnlOIkNjgUKr8IrHYml0ypGpSl75c+3mN7/Ye/uB3sZ28V5A54Hwb3I+ltKM',
+        );
+
+        if (isset($sri[$handle])) {
+            $tag = str_replace(
+                ' src=',
+                ' integrity="' . esc_attr($sri[$handle]) . '" crossorigin="anonymous" src=',
+                $tag
+            );
+        }
+
+        return $tag;
+    }
+
+    /**
+     * Shows an admin warning when Pagadito webhook signature verification is disabled outside local env.
+     */
+    public function maybe_show_webhook_signature_notice() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        if (get_option('cna_pagadito_require_webhook_signature', '1') === '1') {
+            return;
+        }
+
+        $env = function_exists('wp_get_environment_type') ? wp_get_environment_type() : 'production';
+        if ($env === 'local') {
+            return;
+        }
+
+        $settings_url = admin_url('edit.php?post_type=cna_product&page=cna-settings');
+        echo '<div class="notice notice-error"><p><strong>' . esc_html__('Seguridad CNA:', 'cna-subscriptions') . '</strong> ';
+        echo esc_html__('La verificación de firma del webhook de Pagadito está desactivada. Actívala en ', 'cna-subscriptions');
+        echo '<a href="' . esc_url($settings_url) . '">' . esc_html__('Ajustes CNA', 'cna-subscriptions') . '</a>.';
+        echo '</p></div>';
     }
 
     /**
@@ -3255,9 +3304,13 @@ class CNA_Subscriptions_Admin {
             return;
         }
 
-        // Encolar Chart.js
+        // Encolar Chart.js desde CDN con SRI para proteger contra compromiso de CDN.
+        // Hashes SHA-384 verificados contra chart.js@4.4.0 y date-fns@2.30.0.
         wp_enqueue_script('chartjs', 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js', array(), '4.4.0', true);
         wp_enqueue_script('date-fns', 'https://cdn.jsdelivr.net/npm/date-fns@2.30.0/index.min.js', array(), '2.30.0', true);
+
+        // Add SRI integrity + crossorigin attributes via filter.
+        add_filter('script_loader_tag', array($this, 'add_cdn_sri_attributes'), 10, 2);
         ?>
         <div class="wrap cna-dashboard">
             <h1><?php _e('Tablero', 'cna-subscriptions'); ?></h1>

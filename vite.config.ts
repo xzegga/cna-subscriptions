@@ -4,6 +4,8 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  // Static admin assets (modals) live in public/admin/ and are copied to assets/admin/ on build.
+  publicDir: 'public',
   build: {
     // Generar un manifest.json para que PHP sepa qué archivo cargar en producción
     manifest: true,
