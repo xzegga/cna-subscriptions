@@ -21,6 +21,15 @@ import type {
 import './CheckoutWizard.css';
 
 const DEFAULT_MIN_QTY = 4;
+const CHECKOUT_SUBSCRIPTION_KEY = 'cna_checkout_subscription_id';
+
+function getRetrySubscriptionId(): number | undefined {
+  const fromStorage = sessionStorage.getItem(CHECKOUT_SUBSCRIPTION_KEY);
+  const fromUrl = new URLSearchParams(window.location.search).get('subscription_id');
+  const raw = fromStorage || fromUrl || '';
+  const id = parseInt(raw, 10);
+  return id > 0 ? id : undefined;
+}
 
 function getConfigQty(cfg: Record<string, unknown> | null): number {
   if (!cfg) return DEFAULT_MIN_QTY;
@@ -532,16 +541,25 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
     );
   }, [userData]);
 
-  // Si los datos personales ya vienen completos, abrir directamente en método de entrega
+  // Solo al cargar el perfil: si ya venía completo, saltar al método de entrega (no al editar)
   useEffect(() => {
     if (!userDataLoaded || hasSkippedInitialPersonalStep.current) {
       return;
     }
-    if (isPersonalStepValid) {
-      hasSkippedInitialPersonalStep.current = true;
+    hasSkippedInitialPersonalStep.current = true;
+
+    const wasCompleteOnLoad =
+      Boolean(userData.first_name?.trim()) &&
+      Boolean(userData.last_name?.trim()) &&
+      Boolean(userData.user_email?.trim()) &&
+      Boolean(userData.nationality?.trim()) &&
+      Boolean(userData.phone?.trim());
+
+    if (wasCompleteOnLoad) {
       setActiveStep('delivery_method');
     }
-  }, [userDataLoaded, isPersonalStepValid]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- evaluate once when profile loads
+  }, [userDataLoaded]);
 
   // Validación: Paso 2 - Método de entrega
   const isDeliveryMethodValid = useMemo(() => {
@@ -730,9 +748,14 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
         billing: finalBilling,
         user_metadata: Object.keys(userMetadata).length > 0 ? userMetadata : undefined,
         auto_renew: acceptAutoRenew ? 1 : 0,
+        retry_subscription_id: getRetrySubscriptionId(),
       };
 
       const response = await createOrder(orderData);
+
+      if (response.subscription_id) {
+        sessionStorage.setItem(CHECKOUT_SUBSCRIPTION_KEY, String(response.subscription_id));
+      }
 
       // Actualizar totales con los datos reales del backend
       if (response.totals) {
@@ -781,11 +804,25 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
     setActiveStep(activeStep === step ? 'personal' : step);
   };
 
+  if (error) {
+    return (
+      <div className="cna-checkout-wizard">
+        <div className="cna-error-message" role="alert">
+          {error}
+        </div>
+      </div>
+    );
+  }
+
   if (!config || !userDataLoaded) {
     return (
       <div className="cna-checkout-wizard">
-        <div className="cna-error-message">
-          {error || 'Cargando configuración...'}
+        <div className="cna-checkout-loading" role="status" aria-live="polite">
+          <div className="cna-checkout-loading__spinner" aria-hidden="true" />
+          <p className="cna-checkout-loading__title">Preparando tu suscripción</p>
+          <p className="cna-checkout-loading__text">
+            Estamos cargando los datos de tu pedido. Esto solo tomará un momento.
+          </p>
         </div>
       </div>
     );
@@ -852,8 +889,6 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
 
   return (
     <div className="cna-checkout-wizard cna-single-page-checkout">
-      <h2>Finalizar Suscripción</h2>
-
       {error && (
         <div className="cna-error-message">{error}</div>
       )}

@@ -5,6 +5,7 @@ import ProductConfigurator from './components/ProductConfigurator/ProductConfigu
 import CheckoutWizard from './components/CheckoutWizard/CheckoutWizard';
 import MyAccountDashboard from './components/MyAccountDashboard/MyAccountDashboard';
 import OrderConfirmation from './components/OrderConfirmation/OrderConfirmation';
+import LoginPage from './components/LoginPage/LoginPage';
 
 /**
  * Función helper para montar componentes de React de forma segura
@@ -80,7 +81,24 @@ if (productData && productData.productId > 0) {
   });
 }
 
-// 2. Isla del Wizard de Checkout
+// 2. Isla de Login (página /iniciar-sesion)
+const getLoginRedirectTo = (): string => {
+  const loginElement = document.getElementById('cna-login-app');
+  const fromData = loginElement?.dataset.redirectTo || '';
+  if (fromData) {
+    return fromData;
+  }
+  const settings = (window as { wpApiSettings?: { checkoutUrl?: string } }).wpApiSettings;
+  return settings?.checkoutUrl || '/finalizar-suscripcion/';
+};
+
+if (document.getElementById('cna-login-app')) {
+  mountComponent('cna-login-app', LoginPage, {
+    redirectTo: getLoginRedirectTo(),
+  });
+}
+
+// 3. Isla del Wizard de Checkout
 const checkoutUserId = getUserId();
 if (checkoutUserId > 0) {
   mountComponent('cna-checkout-app', CheckoutWizard, {
@@ -88,7 +106,7 @@ if (checkoutUserId > 0) {
   });
 }
 
-// 3. Isla del Dashboard de Mi Cuenta
+// 4. Isla del Dashboard de Mi Cuenta
 const getInitialSubscriptionId = (): number => {
   const accountElement = document.getElementById('cna-my-account');
   const fromData = accountElement?.dataset.initialSubscriptionId
@@ -109,7 +127,7 @@ if (accountUserId > 0) {
   });
 }
 
-// 4. Isla de Confirmación de Orden
+// 5. Isla de Confirmación de Orden
 const confirmationUserId = getUserId();
 if (confirmationUserId > 0) {
   mountComponent('cna-order-confirmation', OrderConfirmation, {

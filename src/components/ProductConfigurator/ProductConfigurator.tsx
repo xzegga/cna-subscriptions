@@ -198,9 +198,10 @@ const ProductConfigurator: React.FC<ProductConfiguratorProps> = ({
     const userId = userIdElement ? parseInt(userIdElement.textContent || '0', 10) : 0;
 
     if (userId === 0) {
-      // Usuario no autenticado - redirigir a página de login interna con return URL
-      const checkoutUrl = '/finalizar-suscripcion';
-      
+      const settings = (window as { wpApiSettings?: { checkoutUrl?: string; loginUrl?: string; homeUrl?: string } }).wpApiSettings;
+      const checkoutUrl = settings?.checkoutUrl || `${settings?.homeUrl || ''}finalizar-suscripcion/`;
+      const loginBase = settings?.loginUrl || `${settings?.homeUrl || '/'}iniciar-sesion/`;
+
       // Guardar configuración en SessionStorage antes de redirigir
       const configData = {
         productId,
@@ -214,9 +215,7 @@ const ProductConfigurator: React.FC<ProductConfiguratorProps> = ({
       };
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(configData));
       
-      // Redirigir a página de login interna (asumiendo que existe una página con slug 'iniciar-sesion')
-      // Si no existe, crear una página con el shortcode [cna_login]
-      const loginUrl = `/iniciar-sesion?redirect_to=${encodeURIComponent(checkoutUrl)}`;
+      const loginUrl = `${loginBase}${loginBase.includes('?') ? '&' : '?'}redirect_to=${encodeURIComponent(checkoutUrl)}`;
       window.location.href = loginUrl;
       return;
     }
@@ -235,8 +234,8 @@ const ProductConfigurator: React.FC<ProductConfiguratorProps> = ({
 
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(configData));
 
-    // Redirigir al checkout
-    window.location.href = '/finalizar-suscripcion';
+    const checkoutUrl = (window as { wpApiSettings?: { checkoutUrl?: string } }).wpApiSettings?.checkoutUrl || '/finalizar-suscripcion/';
+    window.location.href = checkoutUrl;
   };
 
   if (variations.length === 0) {

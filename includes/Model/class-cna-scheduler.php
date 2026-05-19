@@ -151,4 +151,138 @@ class CNA_Scheduler {
 
         return $date;
     }
+
+    /**
+     * Crea entregas programadas y guarda next_renewal_date para una suscripción.
+     *
+     * @param int $subscription_id
+     * @return int Número de entregas creadas
+     */
+    public static function provision_subscription_deliveries($subscription_id)
+    {
+        global $wpdb;
+        $table_prefix = $wpdb->prefix;
+        $subscription_id = (int) $subscription_id;
+
+        if ($subscription_id <= 0) {
+            return 0;
+        }
+
+        $subscription = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$table_prefix}cna_subscriptions WHERE id = %d",
+            $subscription_id
+        ));
+
+        if (!$subscription) {
+            CNA_Security::debug_log('CNA provision_deliveries: Suscripción no encontrada', array('id' => $subscription_id));
+            return 0;
+        }
+
+        $product_id = (int) $subscription->product_id;
+        $variant_json = $subscription->variant_details;
+        $variant = json_decode($variant_json, true, 512, JSON_UNESCAPED_UNICODE);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $variant = json_decode($variant_json, true);
+        }
+
+        if (!$variant || !is_array($variant)) {
+            CNA_Security::debug_log('CNA provision_deliveries: Variante no disponible', array('id' => $subscription_id));
+            return 0;
+        }
+
+        $delivery_day = intval(get_post_meta($product_id, '_cna_delivery_day', true));
+        $order_cutoff = intval(get_post_meta($product_id, '_cna_order_cutoff', true));
+
+        if (empty($delivery_day) && $delivery_day !== '0') {
+            $delivery_day = 4;
+        }
+        if (empty($order_cutoff) && $order_cutoff !== '0') {
+            $order_cutoff = 2;
+        }
+
+        $qty = max(1, intval($variant['qty'] ?? 1));
+        $frequency = max(1, intval($variant['frequency'] ?? 1));
+
+        $delivery_dates = self::calculate_delivery_dates(
+            'now',
+            $qty,
+            $frequency,
+            $delivery_day,
+            $order_cutoff
+        );
+
+        if (empty($delivery_dates)) {
+            CNA_Security::debug_log('CNA provision_deliveries: Sin fechas calculadas', array('id' => $subscription_id));
+            return 0;
+        }
+
+        $last_delivery = end($delivery_dates);
+        $next_renewal = self::calculate_next_renewal_date($last_delivery, $frequency);
+
+        $renewal_updated = $wpdb->update(
+            $table_prefix . 'cna_subscriptions',
+            array('next_renewal_date' => $next_renewal),
+            array('id' => $subscription_id),
+            array('%s'),
+            array('%d')
+        );
+
+        if ($renewal_updated === false && $wpdb->last_error) {
+            CNA_Security::debug_log('CNA provision_deliveries: Error al guardar next_renewal_date', array(
+                'id' => $subscription_id,
+                'error' => $wpdb->last_error,
+                'next_renewal' => $next_renewal,
+            ));
+        } else {
+            CNA_Security::debug_log('CNA provision_deliveries: next_renewal_date guardada', array(
+                'id' => $subscription_id,
+                'next_renewal' => $next_renewal,
+            ));
+        }
+
+        $advance_percent = floatval($variant['advance_percent'] ?? 100);
+        $unit_price = CNA_Product_Helper::get_variation_price($product_id, strtolower($variant['size'] ?? ''));
+        if ($unit_price === false) {
+            $unit_price = 0;
+        }
+
+        $amount_per_delivery = 0;
+        if ($advance_percent < 100) {
+            $remaining_percent = (100 - $advance_percent) / 100;
+            $amount_per_delivery = $unit_price * $remaining_percent;
+        }
+
+        $deliveries_created = 0;
+        foreach ($delivery_dates as $date) {
+            $insert_result = $wpdb->insert(
+                $table_prefix . 'cna_deliveries',
+                array(
+                    'subscription_id' => $subscription_id,
+                    'scheduled_date' => $date,
+                    'payment_status' => ($advance_percent >= 100) ? 'paid' : 'pending',
+                    'amount_to_collect' => $amount_per_delivery,
+                    'delivery_status' => 'scheduled',
+                ),
+                array('%d', '%s', '%s', '%f', '%s')
+            );
+
+            if ($insert_result !== false) {
+                $deliveries_created++;
+            } else {
+                CNA_Security::debug_log('CNA provision_deliveries: error al insertar entrega', array(
+                    'date' => $date,
+                    'error' => $wpdb->last_error,
+                ));
+            }
+        }
+
+        CNA_Security::debug_log('CNA provision_deliveries', array(
+            'subscription_id' => $subscription_id,
+            'created' => $deliveries_created,
+            'total' => count($delivery_dates),
+            'first_delivery' => $delivery_dates[0] ?? null,
+        ));
+
+        return $deliveries_created;
+    }
 }

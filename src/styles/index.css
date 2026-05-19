@@ -4,7 +4,6 @@
 
 /* Reset básico para componentes */
 .cna-product-configurator,
-.cna-checkout-wizard,
 .cna-my-account {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
   line-height: 1.6;

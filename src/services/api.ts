@@ -89,6 +89,8 @@ export interface OrderData {
   billing?: BillingAddress;
   user_metadata?: UserMetadata;
   auto_renew?: number;
+  /** Reintenta el pago de una suscripción pending/payment_failed existente */
+  retry_subscription_id?: number;
 }
 
 export interface OrderResponse {
@@ -417,4 +419,55 @@ export async function updateUserAddress(addressId: number, address: {
   }
 
   return response.json();
+}
+
+export interface LoginPayload {
+  email: string;
+  password: string;
+  remember?: boolean;
+  website?: string;
+}
+
+export interface RegisterPayload {
+  email: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+  website?: string;
+}
+
+/**
+ * Inicia sesión vía REST (establece cookies de WordPress).
+ */
+export async function loginUser(payload: LoginPayload): Promise<{ success: boolean; user_id: number }> {
+  const response = await apiFetch(`${API_BASE}/login`, {
+    method: 'POST',
+    headers: apiHeaders(true),
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.message || 'Error al iniciar sesión');
+  }
+
+  return data;
+}
+
+/**
+ * Registra un nuevo usuario.
+ */
+export async function registerUser(payload: RegisterPayload): Promise<{ success: boolean }> {
+  const response = await apiFetch(`${API_BASE}/register`, {
+    method: 'POST',
+    headers: apiHeaders(true),
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.message || 'Error al registrar usuario');
+  }
+
+  return data;
 }

@@ -70,8 +70,17 @@ class CNA_Admin_Assets {
      * @return bool
      */
     private function should_enqueue($hook) {
-        if (strpos($hook, 'cna_product') !== false) {
-            return true;
+        $cna_hooks = array(
+            'cna_product',
+            'cna-subscriptions',
+            'cna-dashboard',
+            'cna-settings',
+        );
+
+        foreach ($cna_hooks as $needle) {
+            if (strpos($hook, $needle) !== false) {
+                return true;
+            }
         }
 
         global $post_type;

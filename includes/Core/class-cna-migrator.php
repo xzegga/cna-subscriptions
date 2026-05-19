@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
 class CNA_Migrator
 {
 
-    const DB_VERSION = '1.0.4';
+    const DB_VERSION = '1.0.5';
     const VERSION_OPTION = 'cna_subscriptions_db_version';
 
     /**
@@ -45,8 +45,173 @@ class CNA_Migrator
             self::migration_1_0_4();
         }
 
+        if (version_compare($current_version, '1.0.5', '<')) {
+            self::migration_1_0_5();
+        }
+
+        // Siempre reparar columnas faltantes (dbDelta y versiones saltadas no son fiables).
+        self::ensure_subscriptions_table_columns();
+
         // Actualizar versión
         update_option(self::VERSION_OPTION, self::DB_VERSION);
+    }
+
+    /**
+     * @return bool True si pagadito_ern existe en la tabla de suscripciones.
+     */
+    public static function subscriptions_table_has_pagadito_ern()
+    {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'cna_subscriptions';
+
+        if (!self::table_exists($table_name)) {
+            return false;
+        }
+
+        $columns = self::get_table_columns($table_name);
+
+        return in_array('pagadito_ern', $columns, true);
+    }
+
+    /**
+     * Asegura columnas requeridas en cna_subscriptions (idempotente, sin depender de la versión guardada).
+     */
+    public static function ensure_subscriptions_table_columns()
+    {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'cna_subscriptions';
+
+        if (!self::table_exists($table_name)) {
+            self::log_migration('Tabla no existe aún, se omiten columnas: ' . $table_name);
+            return;
+        }
+
+        $columns = self::get_table_columns($table_name);
+        if ($columns === array()) {
+            self::log_migration('No se pudieron leer columnas de ' . $table_name);
+            return;
+        }
+
+        $decimal_columns = array(
+            'unit_price' => 'decimal(10,2) DEFAULT 0.00',
+            'product_subtotal' => 'decimal(10,2) DEFAULT 0.00',
+            'advance_amount' => 'decimal(10,2) DEFAULT 0.00',
+            'shipping_total' => 'decimal(10,2) DEFAULT 0.00',
+            'annual_fee' => 'decimal(10,2) DEFAULT 0.00',
+            'net_amount' => 'decimal(10,2) DEFAULT 0.00',
+            'fee_amount' => 'decimal(10,2) DEFAULT 0.00',
+            'total_with_fee' => 'decimal(10,2) DEFAULT 0.00',
+        );
+
+        foreach ($decimal_columns as $column => $definition) {
+            self::add_column_if_missing($table_name, $column, $definition, $columns);
+        }
+
+        self::add_column_if_missing($table_name, 'pagadito_ern', 'varchar(50) DEFAULT NULL', $columns);
+        self::add_column_if_missing($table_name, 'payment_transaction_json', 'longtext DEFAULT NULL', $columns);
+
+        if (in_array('pagadito_ern', $columns, true)) {
+            self::add_index_if_missing($table_name, 'idx_pagadito_ern', 'pagadito_ern');
+        }
+    }
+
+    /**
+     * Migración 1.0.5: Reparar pagadito_ern cuando la BD quedó en 1.0.4 sin esa columna.
+     */
+    private static function migration_1_0_5()
+    {
+        self::ensure_subscriptions_table_columns();
+    }
+
+    /**
+     * @param string $table_name
+     * @return bool
+     */
+    private static function table_exists($table_name)
+    {
+        global $wpdb;
+
+        $like = $wpdb->esc_like($table_name);
+        $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $like));
+
+        return is_string($found) && $found === $table_name;
+    }
+
+    /**
+     * @param string $table_name
+     * @return string[]
+     */
+    private static function get_table_columns($table_name)
+    {
+        global $wpdb;
+
+        $columns = $wpdb->get_col("SHOW COLUMNS FROM `{$table_name}`", 0);
+
+        return is_array($columns) ? $columns : array();
+    }
+
+    /**
+     * @param string   $table_name
+     * @param string   $column
+     * @param string   $definition
+     * @param string[] $columns
+     */
+    private static function add_column_if_missing($table_name, $column, $definition, &$columns)
+    {
+        if (in_array($column, $columns, true)) {
+            return;
+        }
+
+        global $wpdb;
+
+        $sql = "ALTER TABLE `{$table_name}` ADD COLUMN `{$column}` {$definition}";
+        $result = $wpdb->query($sql);
+
+        if ($result === false) {
+            self::log_migration('Error ADD COLUMN ' . $column . ': ' . $wpdb->last_error);
+            return;
+        }
+
+        $columns[] = $column;
+        self::log_migration('Columna agregada: ' . $column);
+    }
+
+    /**
+     * @param string $table_name
+     * @param string $index_name
+     * @param string $column
+     */
+    private static function add_index_if_missing($table_name, $index_name, $column)
+    {
+        global $wpdb;
+
+        $existing = $wpdb->get_var($wpdb->prepare(
+            "SHOW INDEX FROM `{$table_name}` WHERE Key_name = %s",
+            $index_name
+        ));
+
+        if (!empty($existing)) {
+            return;
+        }
+
+        $result = $wpdb->query("ALTER TABLE `{$table_name}` ADD INDEX `{$index_name}` (`{$column}`)");
+
+        if ($result === false) {
+            self::log_migration('Error ADD INDEX ' . $index_name . ': ' . $wpdb->last_error);
+            return;
+        }
+
+        self::log_migration('Índice agregado: ' . $index_name);
+    }
+
+    /**
+     * @param string $message
+     */
+    private static function log_migration($message)
+    {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[CNA Subscriptions][migration] ' . $message);
+        }
     }
 
     /**
@@ -117,19 +282,7 @@ class CNA_Migrator
      */
     private static function migration_1_0_3()
     {
-        global $wpdb;
-        $table_prefix = $wpdb->prefix;
-        $table_name = $table_prefix . 'cna_subscriptions';
-
-        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-
-        // Verificar si la columna ya existe
-        $columns = $wpdb->get_col("SHOW COLUMNS FROM {$table_name}");
-        
-        if (!in_array('pagadito_ern', $columns)) {
-            $wpdb->query("ALTER TABLE {$table_name} ADD COLUMN pagadito_ern varchar(50) DEFAULT NULL");
-            $wpdb->query("ALTER TABLE {$table_name} ADD INDEX pagadito_ern (pagadito_ern)");
-        }
+        self::ensure_subscriptions_table_columns();
     }
 
     /**
@@ -137,15 +290,7 @@ class CNA_Migrator
      */
     private static function migration_1_0_4()
     {
-        global $wpdb;
-        $table_prefix = $wpdb->prefix;
-        $table_name = $table_prefix . 'cna_subscriptions';
-
-        $columns = $wpdb->get_col("SHOW COLUMNS FROM {$table_name}");
-
-        if (!in_array('payment_transaction_json', $columns)) {
-            $wpdb->query("ALTER TABLE {$table_name} ADD COLUMN payment_transaction_json longtext DEFAULT NULL");
-        }
+        self::ensure_subscriptions_table_columns();
     }
 
     /**

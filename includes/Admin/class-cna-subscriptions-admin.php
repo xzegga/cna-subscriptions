@@ -827,19 +827,43 @@ class CNA_Subscriptions_Admin {
     }
 
     /**
+     * URL del listado de suscripciones en el admin.
+     *
+     * @param array $extra_args Query args opcionales (filtros, paginación, etc.).
+     * @return string
+     */
+    private function get_subscriptions_list_url($extra_args = array()) {
+        $args = array_merge(
+            array(
+                'post_type' => 'cna_product',
+                'page' => 'cna-subscriptions',
+            ),
+            $extra_args
+        );
+
+        unset($args['view'], $args['subscription_id']);
+
+        return add_query_arg($args, admin_url('edit.php'));
+    }
+
+    /**
      * Construye la URL para ver detalles de una suscripción
      *
      * @param int $subscription_id
      * @return string
      */
     private function get_subscription_detail_url($subscription_id) {
-        $args = array(
-            'post_type' => 'cna_product',
-            'page' => 'cna-subscriptions',
-            'view' => 'details',
-            'subscription_id' => $subscription_id,
+        return esc_url(
+            add_query_arg(
+                array(
+                    'post_type' => 'cna_product',
+                    'page' => 'cna-subscriptions',
+                    'view' => 'details',
+                    'subscription_id' => $subscription_id,
+                ),
+                admin_url('edit.php')
+            )
         );
-        return esc_url(add_query_arg($args, admin_url('edit.php')));
     }
 
     /**
@@ -1132,7 +1156,7 @@ class CNA_Subscriptions_Admin {
         <div class="wrap cna-subscription-details">
             <!-- Header con Navegación -->
             <div class="cna-page-header">
-                <a href="<?php echo esc_url(admin_url('edit.php?post_type=cna_product&page=cna-subscriptions')); ?>" 
+                <a href="<?php echo esc_url($this->get_subscriptions_list_url()); ?>" 
                    class="cna-back-link">
                     <svg class="cna-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1635,10 +1659,13 @@ class CNA_Subscriptions_Admin {
                             },
                             success: function(response) {
                                 if (response.success) {
+                                    var listUrl = (response.data && response.data.redirect)
+                                        ? response.data.redirect
+                                        : '<?php echo esc_js($this->get_subscriptions_list_url()); ?>';
                                     CNAAdminModal.success(
                                         '<?php echo esc_js(__('Suscripción eliminada correctamente', 'cna-subscriptions')); ?>',
                                         function() {
-                                            window.location.href = '<?php echo esc_url(admin_url('edit.php?post_type=cna_product&page=cna-subscriptions')); ?>';
+                                            window.location.href = listUrl;
                                         }
                                     );
                                 } else {
@@ -3094,6 +3121,22 @@ class CNA_Subscriptions_Admin {
             wp_send_json_error(__('Error al actualizar', 'cna-subscriptions'));
         }
 
+        if ($new_status === 'active') {
+            $existing_deliveries = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$table_prefix}cna_deliveries WHERE subscription_id = %d",
+                $subscription_id
+            ));
+            if ($existing_deliveries === 0 && class_exists('CNA_Scheduler')) {
+                $created = CNA_Scheduler::provision_subscription_deliveries($subscription_id);
+                if ($created > 0) {
+                    $action_message .= ' ' . sprintf(
+                        __('(%d entregas programadas)', 'cna-subscriptions'),
+                        $created
+                    );
+                }
+            }
+        }
+
         // Registrar en audit log
         if (class_exists('CNA_Audit_Logger')) {
             CNA_Audit_Logger::log(
@@ -3172,7 +3215,10 @@ class CNA_Subscriptions_Admin {
             );
         }
 
-        wp_send_json_success(__('Suscripción eliminada correctamente', 'cna-subscriptions'));
+        wp_send_json_success(array(
+            'message' => __('Suscripción eliminada correctamente', 'cna-subscriptions'),
+            'redirect' => $this->get_subscriptions_list_url(),
+        ));
     }
 
     /**

@@ -22,9 +22,9 @@ class CNA_Activator
         require_once CNA_SUBSCRIPTIONS_PLUGIN_DIR . 'includes/Core/class-cna-migrator.php';
         require_once CNA_SUBSCRIPTIONS_PLUGIN_DIR . 'includes/Admin/class-cna-categories.php';
 
-        CNA_Migrator::migrate();
-
+        // dbDelta primero (tablas base), luego ALTER explícitos (columnas que dbDelta suele omitir).
         self::create_tables();
+        CNA_Migrator::migrate();
 
         // Inicializar variaciones por defecto si no existen
         self::initialize_default_variations();
@@ -156,13 +156,16 @@ class CNA_Activator
             net_amount decimal(10,2) DEFAULT 0.00,
             fee_amount decimal(10,2) DEFAULT 0.00,
             total_with_fee decimal(10,2) DEFAULT 0.00,
+            pagadito_ern varchar(50) DEFAULT NULL,
+            payment_transaction_json longtext DEFAULT NULL,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY  (id),
             KEY user_id (user_id),
             KEY product_id (product_id),
             KEY status (status),
-            KEY next_renewal_date (next_renewal_date)
+            KEY next_renewal_date (next_renewal_date),
+            KEY idx_pagadito_ern (pagadito_ern)
         ) $charset_collate;";
 
         dbDelta($sql_subscriptions);

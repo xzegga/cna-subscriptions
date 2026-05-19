@@ -461,8 +461,11 @@ class CNA_Pagadito_Webhook {
     /**
      * Maps PAGADITO-AUTH-ALGO values to openssl_verify algorithm constants.
      *
+     * Pagadito's official example passes the header value directly to openssl_verify();
+     * known aliases are normalized first, otherwise the raw value is used.
+     *
      * @param string $auth_algo
-     * @return int|null
+     * @return int|string|null
      */
     private static function normalize_openssl_algorithm($auth_algo) {
         $auth_algo = trim($auth_algo);
@@ -474,13 +477,22 @@ class CNA_Pagadito_Webhook {
             return constant($auth_algo);
         }
 
+        if (ctype_digit($auth_algo)) {
+            return (int) $auth_algo;
+        }
+
         $map = array(
-            'sha256WithRSAEncryption' => OPENSSL_ALGO_SHA256,
-            'SHA256WithRSAEncryption' => OPENSSL_ALGO_SHA256,
-            'sha1WithRSAEncryption' => OPENSSL_ALGO_SHA1,
-            'SHA1WithRSAEncryption' => OPENSSL_ALGO_SHA1,
+            'sha256withrsaencryption' => OPENSSL_ALGO_SHA256,
+            'sha1withrsaencryption' => OPENSSL_ALGO_SHA1,
+            'sha256' => OPENSSL_ALGO_SHA256,
+            'sha1' => OPENSSL_ALGO_SHA1,
         );
 
-        return isset($map[$auth_algo]) ? $map[$auth_algo] : null;
+        $key = strtolower($auth_algo);
+        if (isset($map[$key])) {
+            return $map[$key];
+        }
+
+        return $auth_algo;
     }
 }

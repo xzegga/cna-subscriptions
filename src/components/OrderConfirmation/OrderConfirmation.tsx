@@ -59,7 +59,8 @@ const OrderConfirmation: React.FC<OrderConfirmationProps> = () => {
     }
 
     if (statusParam === 'cancelled') {
-      setError('El pago fue cancelado. Por favor, intenta nuevamente.');
+      sessionStorage.setItem('cna_checkout_subscription_id', subscriptionId);
+      setError('El pago fue cancelado. Por favor, intenta nuevamente desde el checkout.');
       setLoading(false);
       return;
     }
@@ -76,6 +77,7 @@ const OrderConfirmation: React.FC<OrderConfirmationProps> = () => {
           setError(null);
           if (details.status === 'active') {
             window.clearInterval(pollInterval);
+            sessionStorage.removeItem('cna_checkout_subscription_id');
             const url = new URL(window.location.href);
             url.searchParams.delete('status');
             window.history.replaceState({}, '', url.toString());
@@ -124,6 +126,7 @@ const OrderConfirmation: React.FC<OrderConfirmationProps> = () => {
       setSubscription(details);
 
       if (details.status === 'active') {
+        sessionStorage.removeItem('cna_checkout_subscription_id');
         const url = new URL(window.location.href);
         url.searchParams.delete('status');
         window.history.replaceState({}, '', url.toString());

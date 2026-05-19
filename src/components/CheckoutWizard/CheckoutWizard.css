@@ -1,17 +1,51 @@
-.cna-checkout-wizard {
-  max-width: 1200px;
-  margin: 2rem auto;
-  padding: 2rem;
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+/* La Canasta Campesina — checkout (aligned with login page) */
+@import url('https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap');
+
+body.cna-has-checkout-app #cna-checkout-app {
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
 
-.cna-checkout-wizard h2 {
-  margin-top: 0;
-  margin-bottom: 2rem;
-  color: #333;
-  text-align: center;
+body.cna-has-checkout-app .entry-content,
+body.cna-has-checkout-app .site-content,
+body.cna-has-checkout-app .content-area,
+body.cna-has-checkout-app .ast-container {
+  background: transparent !important;
+}
+
+.cna-checkout-wizard {
+  --cna-green: #3a7d44;
+  --cna-green-dark: #2d6335;
+  --cna-green-tint: #f4faf5;
+  --cna-green-tint-strong: #e8f3ea;
+  --cna-orange: #f07a1a;
+  --cna-orange-hover: #d96810;
+  --cna-cream: #f7f5f0;
+  --cna-card: #ffffff;
+  --cna-text: #1f1f1f;
+  --cna-muted: #5c5c5c;
+  --cna-border: #e4e0d8;
+  --cna-radius: 16px;
+  --cna-radius-pill: 999px;
+  --cna-shadow: 0 8px 32px rgba(45, 60, 40, 0.08);
+
+  box-sizing: border-box;
+  max-width: 1200px;
+  margin: 0 auto 2rem;
+  padding: 0 1rem;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  font-family: 'Source Sans 3', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--cna-text);
+  line-height: 1.6;
+}
+
+.cna-checkout-wizard *,
+.cna-checkout-wizard *::before,
+.cna-checkout-wizard *::after {
+  box-sizing: border-box;
 }
 
 /* Resumen del Producto Header */
@@ -19,9 +53,10 @@
   display: flex;
   gap: 1.5rem;
   padding: 1.5rem;
-  background: #fff;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  background: var(--cna-card);
+  border: 1px solid rgba(58, 125, 68, 0.12);
+  border-radius: var(--cna-radius);
+  box-shadow: var(--cna-shadow);
   margin-bottom: 1.5rem;
   align-items: flex-start;
 }
@@ -64,14 +99,14 @@
   margin: 0 0 0.75rem 0;
   font-size: 1.25rem;
   font-weight: 600;
-  color: #4a9d5f;
+  color: var(--cna-green-dark);
   line-height: 1.4;
 }
 
 .cna-product-price {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #4a9d5f;
+  color: var(--cna-green);
   margin-bottom: 1rem;
 }
 
@@ -125,13 +160,15 @@
 }
 
 /* Mensajes de error */
-.cna-error-message {
-  padding: 1rem;
-  background: #fce8e8;
-  border: 1px solid #d63638;
-  border-radius: 4px;
-  color: #d63638;
+.cna-checkout-wizard .cna-error-message {
+  padding: 0.75rem 1rem;
+  background: #fef2f2;
+  border: 1px solid #f5c2c2;
+  border-radius: 10px;
+  color: #b42318;
   margin-bottom: 1.5rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
 }
 
 /* Formulario principal */
@@ -143,17 +180,17 @@
 
 /* Accordion Steps */
 .cna-accordion-step {
-  background: #fff;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  background: var(--cna-card);
+  border: 1px solid var(--cna-border);
+  border-radius: var(--cna-radius);
   margin-bottom: 1rem;
   overflow: hidden;
-  transition: all 0.3s ease;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .cna-accordion-step.active {
-  border-color: #0073aa;
-  box-shadow: 0 2px 8px rgba(0, 115, 170, 0.1);
+  border-color: rgba(58, 125, 68, 0.35);
+  box-shadow: 0 4px 16px rgba(45, 60, 40, 0.06);
 }
 
 .cna-accordion-header {
@@ -162,17 +199,17 @@
   align-items: center;
   padding: 1.25rem 1.5rem;
   cursor: pointer;
-  background: #f9f9f9;
+  background: var(--cna-cream);
   transition: background 0.2s;
 }
 
 .cna-accordion-header:hover {
-  background: #f0f0f0;
+  background: #efece4;
 }
 
 .cna-accordion-step.active .cna-accordion-header {
-  background: #f0f8ff;
-  border-bottom: 1px solid #e0e0e0;
+  background: var(--cna-green-tint);
+  border-bottom: 1px solid var(--cna-border);
 }
 
 .cna-step-title {
@@ -188,15 +225,15 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #e0e0e0;
-  color: #666;
+  background: var(--cna-border);
+  color: var(--cna-muted);
   font-weight: 600;
   font-size: 0.9rem;
   flex-shrink: 0;
 }
 
 .cna-accordion-step.active .cna-step-number {
-  background: #0073aa;
+  background: var(--cna-green);
   color: #fff;
 }
 
@@ -243,9 +280,9 @@
 .cna-form-section h3 {
   margin-top: 0;
   margin-bottom: 1.5rem;
-  color: #333;
+  color: var(--cna-text);
   font-size: 1.25rem;
-  border-bottom: 2px solid #0073aa;
+  border-bottom: 1px solid var(--cna-border);
   padding-bottom: 0.5rem;
 }
 
@@ -267,30 +304,33 @@
 
 .cna-form-group label {
   display: block;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.8125rem;
   font-weight: 600;
-  color: #555;
+  color: var(--cna-text);
 }
 
 .cna-input,
 .cna-select,
 .cna-textarea {
   width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  padding: 0.75rem 0.95rem;
+  border: 1px solid var(--cna-border);
+  border-radius: 10px;
   font-size: 1rem;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
   font-family: inherit;
   box-sizing: border-box;
+  background: #fff;
+  color: var(--cna-text);
 }
 
 .cna-input:focus,
 .cna-select:focus,
 .cna-textarea:focus {
   outline: none;
-  border-color: #0073aa;
-  box-shadow: 0 0 0 2px rgba(0, 115, 170, 0.1);
+  border-color: var(--cna-green);
+  box-shadow: 0 0 0 3px rgba(58, 125, 68, 0.12);
 }
 
 .cna-select:disabled {
@@ -326,8 +366,8 @@
 }
 
 .cna-shipping-option:hover {
-  border-color: #0073aa;
-  background: #f0f8ff;
+  border-color: var(--cna-green);
+  background: var(--cna-green-tint);
 }
 
 .cna-shipping-option input[type="radio"] {
@@ -343,11 +383,11 @@
 
 .cna-option-price {
   font-weight: 600;
-  color: #0073aa;
+  color: var(--cna-green);
 }
 
 .cna-shipping-option input[type="radio"]:checked + .cna-option-content {
-  color: #0073aa;
+  color: var(--cna-green);
 }
 
 /* Facturación */
@@ -366,19 +406,19 @@
 }
 
 .cna-summary-card {
-  background: #f9f9f9;
-  border: 2px solid #0073aa;
-  border-radius: 8px;
+  background: var(--cna-card);
+  border: 1px solid rgba(58, 125, 68, 0.12);
+  border-radius: var(--cna-radius);
   padding: 1.5rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--cna-shadow);
 }
 
 .cna-summary-card h3 {
   margin-top: 0;
   margin-bottom: 1.5rem;
-  color: #333;
+  color: var(--cna-text);
   font-size: 1.25rem;
-  border-bottom: 2px solid #0073aa;
+  border-bottom: 1px solid var(--cna-border);
   padding-bottom: 0.5rem;
 }
 
@@ -417,13 +457,13 @@
 }
 
 .cna-delivery-method-option:hover {
-  border-color: #0073aa;
-  background: #f0f8ff;
+  border-color: var(--cna-green);
+  background: var(--cna-green-tint);
 }
 
 .cna-delivery-method-option.selected {
-  border-color: #0073aa;
-  background: #e0f2f7;
+  border-color: var(--cna-green);
+  background: var(--cna-green-tint-strong);
 }
 
 .cna-delivery-method-option input[type="radio"] {
@@ -451,8 +491,8 @@
 
 /* Leyenda de ubicaciones disponibles */
 .cna-location-legend {
-  background: #e8f4f8;
-  border: 1px solid #0073aa;
+  background: var(--cna-green-tint);
+  border: 1px solid rgba(58, 125, 68, 0.2);
   border-radius: 4px;
   padding: 0.75rem 1rem;
   margin-bottom: 1.5rem;
@@ -464,7 +504,7 @@
 }
 
 .cna-location-legend strong {
-  color: #0073aa;
+  color: var(--cna-green);
 }
 
 .cna-location-legend span {
@@ -493,13 +533,13 @@
 }
 
 .cna-address-item:hover {
-  border-color: #0073aa;
-  box-shadow: 0 2px 8px rgba(0, 115, 170, 0.1);
+  border-color: var(--cna-green);
+  box-shadow: 0 2px 8px rgba(45, 60, 40, 0.08);
 }
 
 .cna-address-item.selected {
-  border-color: #0073aa;
-  background: #f0f8ff;
+  border-color: var(--cna-green);
+  background: var(--cna-green-tint);
 }
 
 .cna-address-radio {
@@ -556,7 +596,7 @@
 .cna-link-button {
   background: none;
   border: none;
-  color: #0073aa;
+  color: var(--cna-green);
   cursor: pointer;
   padding: 0;
   font-size: 0.9rem;
@@ -565,16 +605,16 @@
 }
 
 .cna-link-button:hover {
-  color: #005a87;
+  color: var(--cna-green-dark);
 }
 
 .cna-add-address-button {
   width: 100%;
   padding: 0.75rem;
   background: #fff;
-  border: 2px dashed #0073aa;
+  border: 2px dashed var(--cna-green);
   border-radius: 8px;
-  color: #0073aa;
+  color: var(--cna-green);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -582,9 +622,9 @@
 }
 
 .cna-add-address-button:hover {
-  background: #f0f8ff;
-  border-color: #005a87;
-  color: #005a87;
+  background: var(--cna-green-tint);
+  border-color: var(--cna-green-dark);
+  color: var(--cna-green-dark);
 }
 
 /* Lista de tiendas */
@@ -608,13 +648,13 @@
 }
 
 .cna-store-item:hover {
-  border-color: #0073aa;
-  box-shadow: 0 2px 8px rgba(0, 115, 170, 0.1);
+  border-color: var(--cna-green);
+  box-shadow: 0 2px 8px rgba(45, 60, 40, 0.08);
 }
 
 .cna-store-item.selected {
-  border-color: #0073aa;
-  background: #f0f8ff;
+  border-color: var(--cna-green);
+  background: var(--cna-green-tint);
 }
 
 .cna-store-radio {
@@ -744,8 +784,8 @@
 }
 
 .cna-shipping-option-sticky:hover {
-  border-color: #0073aa;
-  background: #f0f8ff;
+  border-color: var(--cna-green);
+  background: var(--cna-green-tint);
 }
 
 .cna-shipping-option-sticky input[type="radio"] {
@@ -755,7 +795,7 @@
 }
 
 .cna-shipping-option-sticky input[type="radio"]:checked + .cna-option-content-sticky {
-  color: #0073aa;
+  color: var(--cna-green);
 }
 
 .cna-option-content-sticky {
@@ -778,8 +818,8 @@
 }
 
 .cna-shipping-option-sticky:has(input[type="radio"]:checked) {
-  border-color: #0073aa;
-  background: #e0f2f7;
+  border-color: var(--cna-green);
+  background: var(--cna-green-tint-strong);
 }
 
 .cna-summary-shipping-methods .cna-form-group {
@@ -826,7 +866,7 @@
 
 .cna-summary-total {
   margin-top: 1.5rem;
-  border-top: 2px solid #0073aa;
+  border-top: 2px solid var(--cna-green);
 }
 
 .cna-summary-total .cna-summary-row {
@@ -861,37 +901,45 @@
 
 /* Botones */
 .cna-button {
-  padding: 1rem 2rem;
+  padding: 0.85rem 1.5rem;
   border: none;
-  border-radius: 4px;
-  font-size: 1rem;
-  font-weight: 600;
+  border-radius: var(--cna-radius-pill);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
 }
 
 .cna-button-primary {
-  background: #0073aa;
+  background: var(--cna-orange);
   color: #fff;
+  box-shadow: 0 4px 12px rgba(240, 122, 26, 0.3);
 }
 
 .cna-button-primary:hover:not(:disabled) {
-  background: #005a87;
+  background: var(--cna-orange-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 5px 16px rgba(240, 122, 26, 0.35);
 }
 
 .cna-button-secondary {
-  background: #f0f0f0;
-  color: #333;
+  background: var(--cna-cream);
+  color: var(--cna-text);
 }
 
 .cna-button-secondary:hover {
-  background: #e0e0e0;
+  background: #efece4;
 }
 
 .cna-button:disabled {
-  background: #ccc;
+  background: #c4c0b8;
+  box-shadow: none;
   cursor: not-allowed;
-  opacity: 0.6;
+  opacity: 1;
+  transform: none;
 }
 
 .cna-button-full-width {
@@ -910,6 +958,54 @@
   text-align: center;
   padding: 1rem;
   color: #666;
+}
+
+/* Estado de carga inicial del checkout */
+.cna-checkout-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  min-height: 220px;
+  padding: 2.5rem 1.5rem;
+  margin: 1rem auto;
+  max-width: 420px;
+  background: #fff;
+  border: 1px solid rgba(58, 125, 68, 0.12);
+  border-radius: 16px;
+  box-shadow: 0 8px 28px rgba(45, 60, 40, 0.06);
+  text-align: center;
+}
+
+.cna-checkout-loading__spinner {
+  width: 44px;
+  height: 44px;
+  border: 3px solid #e8f3ea;
+  border-top-color: #3a7d44;
+  border-radius: 50%;
+  animation: cna-checkout-spin 0.75s linear infinite;
+}
+
+.cna-checkout-loading__title {
+  margin: 0.35rem 0 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1f1f1f;
+}
+
+.cna-checkout-loading__text {
+  margin: 0;
+  font-size: 0.925rem;
+  line-height: 1.5;
+  color: #5c5c5c;
+  max-width: 28ch;
+}
+
+@keyframes cna-checkout-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Responsive */
@@ -931,8 +1027,8 @@
 
 @media (max-width: 768px) {
   .cna-checkout-wizard {
-    padding: 1rem;
-    margin: 1rem;
+    padding: 0 0.75rem 1.5rem;
+    margin: 0 auto 1.5rem;
     max-width: 100%;
   }
 
@@ -950,10 +1046,6 @@
 
   .cna-summary-card {
     padding: 1rem;
-  }
-
-  .cna-checkout-wizard h2 {
-    font-size: 1.5rem;
   }
 
   .cna-step-label {

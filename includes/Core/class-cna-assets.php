@@ -49,6 +49,10 @@ class CNA_Assets {
      */
     public function init() {
         add_action('wp_enqueue_scripts', array($this, 'enqueue_scripts'));
+
+        require_once $this->plugin_dir . 'includes/Core/class-cna-pages.php';
+        $pages = new CNA_Pages();
+        $pages->init();
     }
 
     /**
@@ -137,14 +141,7 @@ class CNA_Assets {
         );
 
         // Localizar script con datos de WordPress (nonce, etc.)
-        wp_localize_script(
-            'cna-react-app',
-            'wpApiSettings',
-            array(
-                'nonce' => wp_create_nonce('wp_rest'),
-                'restUrl' => rest_url('cna/v1/'),
-            )
-        );
+        $this->localize_react_script('cna-react-app');
 
         // Tipo módulo ES para que funcione correctamente
         add_filter('script_loader_tag', array($this, 'add_module_type'), 10, 3);
@@ -205,16 +202,33 @@ class CNA_Assets {
             );
         }
 
+        $this->localize_react_script('cna-react-app');
+
+        return true;
+    }
+
+    /**
+     * Datos compartidos con la app React (nonce, URLs de páginas, sesión).
+     *
+     * @param string $handle
+     */
+    private function localize_react_script($handle) {
+        require_once $this->plugin_dir . 'includes/Core/class-cna-pages.php';
+
         wp_localize_script(
-            'cna-react-app',
+            $handle,
             'wpApiSettings',
             array(
                 'nonce' => wp_create_nonce('wp_rest'),
                 'restUrl' => rest_url('cna/v1/'),
+                'homeUrl' => home_url('/'),
+                'loginUrl' => CNA_Pages::get_login_url(),
+                'checkoutUrl' => CNA_Pages::get_checkout_url(),
+                'isLoggedIn' => is_user_logged_in(),
+                'userId' => get_current_user_id(),
+                'lostPasswordUrl' => wp_lostpassword_url(),
             )
         );
-
-        return true;
     }
 
     /**

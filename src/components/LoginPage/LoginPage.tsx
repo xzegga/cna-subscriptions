@@ -1,31 +1,34 @@
 import React, { useState } from 'react';
 import { loginUser, registerUser } from '../../services/api';
-import './AuthModal.css';
+import './LoginPage.css';
 
-interface AuthModalProps {
-  onSuccess: () => void;
-  onClose?: () => void;
-  redirectTo?: string;
+interface LoginPageProps {
+  redirectTo: string;
 }
 
-const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo }) => {
+const getLostPasswordUrl = (): string => {
+  const settings = (window as { wpApiSettings?: { lostPasswordUrl?: string } }).wpApiSettings;
+  return settings?.lostPasswordUrl || '/wp-login.php?action=lostpassword';
+};
+
+const LoginPage: React.FC<LoginPageProps> = ({ redirectTo }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  // Login form
+
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  
-  // Register form
+
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [registerPasswordConfirm, setRegisterPasswordConfirm] = useState('');
   const [registerFirstName, setRegisterFirstName] = useState('');
   const [registerLastName, setRegisterLastName] = useState('');
-
-  // Honeypot — must remain empty for real users; bots typically fill it.
   const [honeypot, setHoneypot] = useState('');
+
+  const goAfterAuth = () => {
+    window.location.href = redirectTo;
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,14 +42,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
         remember: true,
         website: honeypot,
       });
-      onSuccess();
-      setTimeout(() => {
-        if (redirectTo) {
-          window.location.href = redirectTo;
-        } else {
-          window.location.reload();
-        }
-      }, 300);
+      goAfterAuth();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error al iniciar sesión. Por favor, intenta de nuevo.';
       setError(message);
@@ -60,7 +56,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
     setLoading(true);
     setError(null);
 
-    // Validaciones
     if (registerPassword !== registerPasswordConfirm) {
       setError('Las contraseñas no coinciden');
       setLoading(false);
@@ -93,15 +88,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
         password: registerPassword,
         remember: true,
       });
-
-      onSuccess();
-      setTimeout(() => {
-        if (redirectTo) {
-          window.location.href = redirectTo;
-        } else {
-          window.location.reload();
-        }
-      }, 300);
+      goAfterAuth();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error al registrar usuario. Por favor, intenta de nuevo.';
       setError(message);
@@ -111,31 +98,32 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
   };
 
   return (
-    <div className="cna-auth-modal-overlay" onClick={onClose}>
-      <div className="cna-auth-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="cna-auth-modal-header">
-          <h3>{isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'}</h3>
-          {onClose && (
-            <button type="button" className="cna-auth-modal-close" onClick={onClose}>
-              ×
-            </button>
-          )}
-        </div>
+    <div className="cna-login-page">
+      <div className="cna-login-page__shell">
+        <p className="cna-login-page__intro">
+          {isLogin
+            ? 'Accede con tu correo o usuario para continuar con tu suscripción.'
+            : 'Crea tu cuenta para suscribirte a productos orgánicos de La Canasta Campesina.'}
+        </p>
 
-        <div className="cna-auth-modal-tabs">
+        <div className="cna-login-page__tabs" role="tablist" aria-label="Tipo de acceso">
           <button
             type="button"
-            className={isLogin ? 'active' : ''}
+            role="tab"
+            aria-selected={isLogin}
+            className={`cna-login-page__tab${isLogin ? ' cna-login-page__tab--active' : ''}`}
             onClick={() => {
               setIsLogin(true);
               setError(null);
             }}
           >
-            Iniciar Sesión
+            Iniciar sesión
           </button>
           <button
             type="button"
-            className={!isLogin ? 'active' : ''}
+            role="tab"
+            aria-selected={!isLogin}
+            className={`cna-login-page__tab${!isLogin ? ' cna-login-page__tab--active' : ''}`}
             onClick={() => {
               setIsLogin(false);
               setError(null);
@@ -146,18 +134,22 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
         </div>
 
         {error && (
-          <div className="cna-auth-error">{error}</div>
+          <div className="cna-login-page__error" role="alert">
+            {error}
+          </div>
         )}
 
         {isLogin ? (
-          <form onSubmit={handleLogin} className="cna-auth-form">
-            {/* Honeypot field — hidden from users, visible to bots */}
+          <form onSubmit={handleLogin} className="cna-login-page__form">
             <div style={{ position: 'absolute', left: '-9999px', opacity: 0, height: 0, overflow: 'hidden' }} aria-hidden="true">
               <label htmlFor="login-website">Website</label>
               <input id="login-website" type="text" name="website" tabIndex={-1} autoComplete="off" />
             </div>
-            <div className="cna-form-group">
-              <label htmlFor="login-email">Correo electrónico o usuario *</label>
+
+            <div className="cna-login-page__field">
+              <label htmlFor="login-email">
+                Correo electrónico o usuario <span>*</span>
+              </label>
               <input
                 id="login-email"
                 type="text"
@@ -170,8 +162,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
               />
             </div>
 
-            <div className="cna-form-group">
-              <label htmlFor="login-password">Contraseña *</label>
+            <div className="cna-login-page__field">
+              <label htmlFor="login-password">
+                Contraseña <span>*</span>
+              </label>
               <input
                 id="login-password"
                 type="password"
@@ -179,32 +173,21 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
                 onChange={(e) => setLoginPassword(e.target.value)}
                 required
                 disabled={loading}
-                placeholder="••••••••"
+                placeholder="Tu contraseña"
+                autoComplete="current-password"
               />
             </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="cna-auth-button cna-auth-button-primary"
-            >
-              {loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
+            <button type="submit" disabled={loading} className="cna-login-page__submit">
+              {loading ? 'Iniciando sesión…' : 'Iniciar sesión'}
             </button>
 
-            <p className="cna-auth-footer">
-              ¿No tienes cuenta?{' '}
-              <button
-                type="button"
-                className="cna-auth-link"
-                onClick={() => setIsLogin(false)}
-              >
-                Regístrate aquí
-              </button>
+            <p className="cna-login-page__footer">
+              <a href={getLostPasswordUrl()}>¿Olvidaste tu contraseña?</a>
             </p>
           </form>
         ) : (
-          <form onSubmit={handleRegister} className="cna-auth-form">
-            {/* Honeypot field — hidden from users, visible to bots */}
+          <form onSubmit={handleRegister} className="cna-login-page__form">
             <div style={{ position: 'absolute', left: '-9999px', opacity: 0, height: 0, overflow: 'hidden' }} aria-hidden="true">
               <label htmlFor="register-website">Website</label>
               <input
@@ -217,34 +200,44 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
                 onChange={(e) => setHoneypot(e.target.value)}
               />
             </div>
-            <div className="cna-form-group">
-              <label htmlFor="register-first-name">Nombre *</label>
-              <input
-                id="register-first-name"
-                type="text"
-                value={registerFirstName}
-                onChange={(e) => setRegisterFirstName(e.target.value)}
-                required
-                disabled={loading}
-                placeholder="Juan"
-              />
+
+            <div className="cna-login-page__row">
+              <div className="cna-login-page__field">
+                <label htmlFor="register-first-name">
+                  Nombre <span>*</span>
+                </label>
+                <input
+                  id="register-first-name"
+                  type="text"
+                  value={registerFirstName}
+                  onChange={(e) => setRegisterFirstName(e.target.value)}
+                  required
+                  disabled={loading}
+                  placeholder="Juan"
+                  autoComplete="given-name"
+                />
+              </div>
+              <div className="cna-login-page__field">
+                <label htmlFor="register-last-name">
+                  Apellido <span>*</span>
+                </label>
+                <input
+                  id="register-last-name"
+                  type="text"
+                  value={registerLastName}
+                  onChange={(e) => setRegisterLastName(e.target.value)}
+                  required
+                  disabled={loading}
+                  placeholder="Pérez"
+                  autoComplete="family-name"
+                />
+              </div>
             </div>
 
-            <div className="cna-form-group">
-              <label htmlFor="register-last-name">Apellido *</label>
-              <input
-                id="register-last-name"
-                type="text"
-                value={registerLastName}
-                onChange={(e) => setRegisterLastName(e.target.value)}
-                required
-                disabled={loading}
-                placeholder="Pérez"
-              />
-            </div>
-
-            <div className="cna-form-group">
-              <label htmlFor="register-email">Correo electrónico *</label>
+            <div className="cna-login-page__field">
+              <label htmlFor="register-email">
+                Correo electrónico <span>*</span>
+              </label>
               <input
                 id="register-email"
                 type="email"
@@ -253,11 +246,14 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
                 required
                 disabled={loading}
                 placeholder="tu@email.com"
+                autoComplete="email"
               />
             </div>
 
-            <div className="cna-form-group">
-              <label htmlFor="register-password">Contraseña *</label>
+            <div className="cna-login-page__field">
+              <label htmlFor="register-password">
+                Contraseña <span>*</span>
+              </label>
               <input
                 id="register-password"
                 type="password"
@@ -266,12 +262,15 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
                 required
                 disabled={loading}
                 minLength={10}
-                placeholder="Mínimo 10 caracteres, incluye letras y números"
+                placeholder="Mínimo 10 caracteres"
+                autoComplete="new-password"
               />
             </div>
 
-            <div className="cna-form-group">
-              <label htmlFor="register-password-confirm">Confirmar Contraseña *</label>
+            <div className="cna-login-page__field">
+              <label htmlFor="register-password-confirm">
+                Confirmar contraseña <span>*</span>
+              </label>
               <input
                 id="register-password-confirm"
                 type="password"
@@ -280,28 +279,18 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
                 required
                 disabled={loading}
                 minLength={10}
-                placeholder="Repite la contraseña"
+                placeholder="Repite tu contraseña"
+                autoComplete="new-password"
               />
             </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="cna-auth-button cna-auth-button-primary"
-            >
-              {loading ? 'Creando cuenta...' : 'Crear Cuenta'}
-            </button>
-
-            <p className="cna-auth-footer">
-              ¿Ya tienes cuenta?{' '}
-              <button
-                type="button"
-                className="cna-auth-link"
-                onClick={() => setIsLogin(true)}
-              >
-                Inicia sesión aquí
-              </button>
+            <p className="cna-login-page__hint">
+              Usa al menos 10 caracteres, incluyendo letras y números.
             </p>
+
+            <button type="submit" disabled={loading} className="cna-login-page__submit">
+              {loading ? 'Creando cuenta…' : 'Crear cuenta'}
+            </button>
           </form>
         )}
       </div>
@@ -309,4 +298,4 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose, redirectTo })
   );
 };
 
-export default AuthModal;
+export default LoginPage;

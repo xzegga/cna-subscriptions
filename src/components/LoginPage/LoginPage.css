@@ -1,0 +1,283 @@
+/* La Canasta Campesina — login page (scoped) */
+@import url('https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap');
+
+/* —— Theme integration: single page title (theme), no extra bands —— */
+body.cna-has-login-app .entry-header,
+body.cna-has-login-app .page-header,
+body.cna-has-login-app .ast-archive-description,
+body.cna-has-login-app .content-area > .ast-container > .entry-header {
+  margin-bottom: 0.5rem;
+}
+
+body.cna-has-login-app #cna-login-app {
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+body.cna-has-login-app .entry-content,
+body.cna-has-login-app .site-content,
+body.cna-has-login-app .content-area,
+body.cna-has-login-app .ast-container {
+  background: transparent !important;
+}
+
+/* —— Login component —— */
+.cna-login-page {
+  --cna-green: #3a7d44;
+  --cna-green-dark: #2d6335;
+  --cna-orange: #f07a1a;
+  --cna-orange-hover: #d96810;
+  --cna-cream: #f7f5f0;
+  --cna-card: #ffffff;
+  --cna-text: #1f1f1f;
+  --cna-muted: #5c5c5c;
+  --cna-border: #e4e0d8;
+  --cna-error-bg: #fef2f2;
+  --cna-error-border: #f5c2c2;
+  --cna-error-text: #b42318;
+  --cna-radius: 16px;
+  --cna-radius-pill: 999px;
+  --cna-shadow: 0 8px 32px rgba(45, 60, 40, 0.08);
+
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto 2rem;
+  padding: 0 1rem;
+  font-family: 'Source Sans 3', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--cna-text);
+  background: transparent;
+}
+
+.cna-login-page *,
+.cna-login-page *::before,
+.cna-login-page *::after {
+  box-sizing: border-box;
+}
+
+.cna-login-page__shell {
+  position: relative;
+  background: var(--cna-card);
+  border-radius: var(--cna-radius);
+  box-shadow: var(--cna-shadow);
+  overflow: hidden;
+  border: 1px solid rgba(58, 125, 68, 0.1);
+}
+
+.cna-login-page__shell::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--cna-green) 0%, #6aab5c 50%, var(--cna-orange) 100%);
+}
+
+.cna-login-page__intro {
+  margin: 0;
+  padding: 1.35rem 1.5rem 0;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  text-align: center;
+  color: var(--cna-muted);
+}
+
+.cna-login-page__tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin: 1.15rem 1.25rem 1rem;
+  padding: 0.3rem;
+  background: var(--cna-cream);
+  border-radius: var(--cna-radius-pill);
+}
+
+.cna-login-page__tab {
+  flex: 1;
+  padding: 0.6rem 0.85rem;
+  border: none;
+  border-radius: var(--cna-radius-pill);
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--cna-muted);
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.cna-login-page__tab:hover {
+  color: var(--cna-green-dark);
+}
+
+.cna-login-page__tab--active {
+  background: var(--cna-card);
+  color: var(--cna-green-dark);
+  box-shadow: 0 1px 6px rgba(45, 60, 40, 0.07);
+}
+
+.cna-login-page__error {
+  margin: 0 1.25rem 0.85rem;
+  padding: 0.75rem 1rem;
+  background: var(--cna-error-bg);
+  border: 1px solid var(--cna-error-border);
+  border-radius: 10px;
+  color: var(--cna-error-text);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.cna-login-page__form {
+  padding: 0 1.25rem 1.5rem;
+}
+
+.cna-login-page__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+}
+
+.cna-login-page__field {
+  margin-bottom: 1rem;
+}
+
+.cna-login-page__field label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--cna-text);
+}
+
+.cna-login-page__field label span {
+  color: var(--cna-muted);
+  font-weight: 500;
+}
+
+.cna-login-page__field input {
+  width: 100%;
+  padding: 0.75rem 0.95rem;
+  border: 1px solid var(--cna-border);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--cna-text);
+  background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.cna-login-page__field input::placeholder {
+  color: #9a958c;
+}
+
+.cna-login-page__field input:hover:not(:disabled) {
+  border-color: #cfc9be;
+}
+
+.cna-login-page__field input:focus {
+  outline: none;
+  border-color: var(--cna-green);
+  box-shadow: 0 0 0 3px rgba(58, 125, 68, 0.12);
+}
+
+.cna-login-page__field input:disabled {
+  background: var(--cna-cream);
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.cna-login-page__hint {
+  margin: -0.35rem 0 0.85rem;
+  font-size: 0.78rem;
+  color: var(--cna-muted);
+  line-height: 1.4;
+}
+
+.cna-login-page__submit {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.9rem 1.25rem;
+  border: none;
+  border-radius: var(--cna-radius-pill);
+  background: var(--cna-orange);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+  box-shadow: 0 4px 12px rgba(240, 122, 26, 0.3);
+}
+
+.cna-login-page__submit:hover:not(:disabled) {
+  background: var(--cna-orange-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 5px 16px rgba(240, 122, 26, 0.35);
+}
+
+.cna-login-page__submit:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.cna-login-page__submit:disabled {
+  background: #c4c0b8;
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.cna-login-page__footer {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--cna-border);
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--cna-muted);
+}
+
+.cna-login-page__footer a {
+  color: var(--cna-green);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.cna-login-page__footer a:hover {
+  color: var(--cna-green-dark);
+  text-decoration: underline;
+}
+
+@media (max-width: 480px) {
+  .cna-login-page {
+    max-width: 100%;
+    padding: 0 0.75rem 1.5rem;
+  }
+
+  .cna-login-page__intro {
+    padding: 1.15rem 1.15rem 0;
+    font-size: 0.9rem;
+  }
+
+  .cna-login-page__tabs {
+    margin: 1rem 1rem 0.85rem;
+  }
+
+  .cna-login-page__form,
+  .cna-login-page__error {
+    padding-left: 1rem;
+    padding-right: 1rem;
+    margin-left: 1rem;
+    margin-right: 1rem;
+  }
+
+  .cna-login-page__form {
+    padding-bottom: 1.35rem;
+  }
+
+  .cna-login-page__row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}

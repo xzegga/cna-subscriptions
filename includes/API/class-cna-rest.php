@@ -208,7 +208,7 @@ class CNA_REST_Controller
         register_rest_route(self::NAMESPACE , '/login', array(
             'methods' => 'POST',
             'callback' => array($this, 'login_user'),
-            'permission_callback' => array($this, 'check_login_rate_limit'),
+            'permission_callback' => '__return_true',
         ));
 
         // GET /user/data
@@ -386,6 +386,135 @@ class CNA_REST_Controller
         return rest_ensure_response(array(
             'stores' => $stores_data,
         ));
+    }
+
+    /**
+     * Firma estable del checkout para reutilizar intentos de pago fallidos.
+     *
+     * @param int   $product_id
+     * @param array $variant
+     * @param array $shipping_data_for_db
+     * @param int   $auto_renew
+     * @return string
+     */
+    private function get_checkout_signature($product_id, $variant, $shipping_data_for_db, $auto_renew)
+    {
+        return md5(wp_json_encode(array(
+            'product_id' => (int) $product_id,
+            'variant' => $variant,
+            'shipping' => $shipping_data_for_db,
+            'auto_renew' => (int) $auto_renew,
+        ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Compara si una suscripción pendiente coincide con el checkout actual.
+     *
+     * @param object $subscription
+     * @param string $checkout_signature
+     * @return bool
+     */
+    private function subscription_matches_checkout_signature($subscription, $checkout_signature)
+    {
+        $variant = json_decode($subscription->variant_details, true);
+        $shipping = json_decode($subscription->shipping_address_json, true);
+
+        if (!is_array($variant) || !is_array($shipping)) {
+            return false;
+        }
+
+        return $this->get_checkout_signature(
+            (int) $subscription->product_id,
+            $variant,
+            $shipping,
+            (int) $subscription->is_auto_renew
+        ) === $checkout_signature;
+    }
+
+    /**
+     * Busca una suscripción reutilizable (pending / payment_failed) para evitar duplicados.
+     *
+     * @param int    $user_id
+     * @param int    $product_id
+     * @param string $checkout_signature
+     * @param int    $retry_subscription_id
+     * @return object|null
+     */
+    private function find_reusable_checkout_subscription($user_id, $product_id, $checkout_signature, $retry_subscription_id = 0)
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'cna_subscriptions';
+
+        if ($retry_subscription_id > 0) {
+            $subscription = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$table}
+                 WHERE id = %d AND user_id = %d AND product_id = %d
+                 AND status IN ('pending', 'payment_failed')",
+                $retry_subscription_id,
+                $user_id,
+                $product_id
+            ));
+
+            if ($subscription && $this->subscription_matches_checkout_signature($subscription, $checkout_signature)) {
+                return $subscription;
+            }
+
+            return null;
+        }
+
+        $candidates = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$table}
+             WHERE user_id = %d AND product_id = %d
+             AND status IN ('pending', 'payment_failed')
+             ORDER BY id DESC
+             LIMIT 10",
+            $user_id,
+            $product_id
+        ));
+
+        if (empty($candidates)) {
+            return null;
+        }
+
+        foreach ($candidates as $subscription) {
+            if ($this->subscription_matches_checkout_signature($subscription, $checkout_signature)) {
+                return $subscription;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Elimina entregas asociadas a un intento de checkout incompleto.
+     *
+     * @param int $subscription_id
+     */
+    private function clear_subscription_deliveries($subscription_id)
+    {
+        global $wpdb;
+        $wpdb->delete(
+            $wpdb->prefix . 'cna_deliveries',
+            array('subscription_id' => (int) $subscription_id),
+            array('%d')
+        );
+    }
+
+    /**
+     * Marca una suscripción como pago fallido tras un intento incompleto.
+     *
+     * @param int $subscription_id
+     */
+    private function mark_subscription_payment_failed($subscription_id)
+    {
+        global $wpdb;
+        $wpdb->update(
+            $wpdb->prefix . 'cna_subscriptions',
+            array('status' => 'payment_failed'),
+            array('id' => (int) $subscription_id),
+            array('%s'),
+            array('%d')
+        );
     }
 
     /**
@@ -662,7 +791,6 @@ class CNA_REST_Controller
             }
         }
 
-        // Crear suscripción en BD con estado 'pending'
         global $wpdb;
         $table_prefix = $wpdb->prefix;
 
@@ -672,10 +800,12 @@ class CNA_REST_Controller
             $shipping_data_for_db['billing'] = $billing;
         }
 
-        // Guardar todos los totales calculados de forma inmutable
+        $auto_renew = isset($data['auto_renew']) ? (int) $data['auto_renew'] : 1;
+        $retry_subscription_id = isset($data['retry_subscription_id']) ? intval($data['retry_subscription_id']) : 0;
+        $checkout_signature = $this->get_checkout_signature($product_id, $variant, $shipping_data_for_db, $auto_renew);
+
+        // Guardar totales; la suscripción solo se activa tras confirmar el pago.
         $subscription_data = array(
-            'user_id' => $user_id,
-            'product_id' => $product_id,
             'status' => 'pending',
             'shipping_address_json' => wp_json_encode($shipping_data_for_db, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'variant_details' => wp_json_encode($variant, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
@@ -688,48 +818,80 @@ class CNA_REST_Controller
             'net_amount' => $prices['net_amount'],
             'fee_amount' => $prices['fee_amount'],
             'total_with_fee' => $prices['total_with_fee'],
-            'is_auto_renew' => isset($data['auto_renew']) ? (int) $data['auto_renew'] : 1,
+            'is_auto_renew' => $auto_renew,
         );
 
-        $result = $wpdb->insert(
-            $table_prefix . 'cna_subscriptions',
-            $subscription_data,
-            array('%d', '%d', '%s', '%s', '%s', '%s', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%d')
+        $existing_subscription = $this->find_reusable_checkout_subscription(
+            $user_id,
+            $product_id,
+            $checkout_signature,
+            $retry_subscription_id
         );
 
-        if (!$result) {
-            CNA_Security::debug_log('CNA create_order ERROR DB', array('error' => $wpdb->last_error));
-            return new WP_Error(
-                'db_error',
-                __('Error al crear la suscripción', 'cna-subscriptions'),
-                array('status' => 500)
+        if ($existing_subscription) {
+            $subscription_id = (int) $existing_subscription->id;
+            $this->clear_subscription_deliveries($subscription_id);
+
+            $updated = $wpdb->update(
+                $table_prefix . 'cna_subscriptions',
+                $subscription_data,
+                array('id' => $subscription_id),
+                array('%s', '%s', '%s', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%d'),
+                array('%d')
+            );
+
+            if ($updated === false) {
+                CNA_Security::debug_log('CNA create_order ERROR DB update', array('error' => $wpdb->last_error));
+                return new WP_Error(
+                    'db_error',
+                    __('Error al actualizar la suscripción', 'cna-subscriptions'),
+                    array('status' => 500)
+                );
+            }
+
+            CNA_Security::debug_log('CNA create_order: Reutilizando suscripción pendiente', array('id' => $subscription_id));
+        } else {
+            $insert_data = array_merge(
+                array(
+                    'user_id' => $user_id,
+                    'product_id' => $product_id,
+                ),
+                $subscription_data
+            );
+
+            $result = $wpdb->insert(
+                $table_prefix . 'cna_subscriptions',
+                $insert_data,
+                array('%d', '%d', '%s', '%s', '%s', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%d')
+            );
+
+            if (!$result) {
+                CNA_Security::debug_log('CNA create_order ERROR DB', array('error' => $wpdb->last_error));
+                return new WP_Error(
+                    'db_error',
+                    __('Error al crear la suscripción', 'cna-subscriptions'),
+                    array('status' => 500)
+                );
+            }
+
+            $subscription_id = (int) $wpdb->insert_id;
+            CNA_Security::debug_log('CNA create_order: Suscripción creada', array('id' => $subscription_id));
+
+            CNA_Audit_Logger::log(
+                CNA_Audit_Logger::EVENT_ORDER_CREATED,
+                array(
+                    'subscription_id' => $subscription_id,
+                    'product_id' => $product_id,
+                    'user_id' => $user_id,
+                    'amount' => $prices['total_with_fee'],
+                    'net_amount' => $prices['net_amount'],
+                    'status' => 'pending',
+                ),
+                CNA_Audit_Logger::SEVERITY_MEDIUM
             );
         }
 
-        $subscription_id = $wpdb->insert_id;
-        CNA_Security::debug_log('CNA create_order: Suscripción creada', array('id' => $subscription_id));
-
-        // Log de creación de orden
-        CNA_Audit_Logger::log(
-            CNA_Audit_Logger::EVENT_ORDER_CREATED,
-            array(
-                'subscription_id' => $subscription_id,
-                'product_id' => $product_id,
-                'user_id' => $user_id,
-                'amount' => $prices['total_with_fee'],
-                'net_amount' => $prices['net_amount'],
-                'status' => 'pending',
-            ),
-            CNA_Audit_Logger::SEVERITY_MEDIUM
-        );
-
-        // Generar y guardar fechas de entrega inmediatamente al crear la orden
-        $this->create_delivery_dates_for_subscription($subscription_id, $variant, $product_id);
-
-        // Enviar email de nueva suscripción al admin
-        if (class_exists('CNA_Mailer')) {
-            CNA_Mailer::send_admin_new_subscription($subscription_id);
-        }
+        // Las entregas y correos al admin se generan solo cuando el pago se confirma (webhook / sandbox).
 
         if (CNA_Security::is_payment_sandbox_allowed()) {
             CNA_Security::debug_log('CNA create_order: Payment Sandbox activo');
@@ -807,14 +969,7 @@ class CNA_REST_Controller
                 'message' => $error_msg,
             ));
 
-            // Marcar suscripción como fallida
-            $wpdb->update(
-                $table_prefix . 'cna_subscriptions',
-                array('status' => 'payment_failed'),
-                array('id' => $subscription_id),
-                array('%s'),
-                array('%d')
-            );
+            $this->mark_subscription_payment_failed($subscription_id);
 
             // Log de error al crear transacción
             CNA_Audit_Logger::log(
@@ -836,6 +991,8 @@ class CNA_REST_Controller
 
         if (!$payment_url) {
             CNA_Security::debug_log('CNA create_order ERROR: No se pudo extraer payment_url');
+            $this->mark_subscription_payment_failed($subscription_id);
+
             return new WP_Error(
                 'no_payment_url',
                 __('No se pudo obtener la URL de pago', 'cna-subscriptions'),
@@ -990,6 +1147,9 @@ class CNA_REST_Controller
 
         if ($status === 'cancelled' || $status === 'failed') {
             CNA_Security::debug_log('CNA payment_return: Pago cancelado o fallido');
+            if ($subscription->status === 'pending') {
+                $this->mark_subscription_payment_failed($subscription_id);
+            }
             wp_safe_redirect(home_url('/confirmacion-orden?subscription_id=' . $subscription_id . '&status=cancelled'));
             exit;
         }
@@ -1019,13 +1179,20 @@ class CNA_REST_Controller
 
         $signature_check = CNA_Pagadito_Webhook::verify_signature($request, $raw_body);
         if (is_wp_error($signature_check)) {
+            $audit_context = array(
+                'subscription_id' => 0,
+                'error' => $signature_check->get_error_code(),
+                'ip' => CNA_Security::get_client_ip(),
+            );
+            if ($signature_check->get_error_code() === 'pagadito_invalid_auth_algo') {
+                $auth_algo = CNA_Pagadito_Webhook::get_header($request, CNA_Pagadito_Webhook::HEADER_AUTH_ALGO);
+                if ($auth_algo !== '') {
+                    $audit_context['auth_algo'] = substr($auth_algo, 0, 64);
+                }
+            }
             CNA_Audit_Logger::log(
                 CNA_Audit_Logger::EVENT_WEBHOOK_RECEIVED,
-                array(
-                    'subscription_id' => 0,
-                    'error' => $signature_check->get_error_code(),
-                    'ip' => CNA_Security::get_client_ip(),
-                ),
+                $audit_context,
                 CNA_Audit_Logger::SEVERITY_CRITICAL
             );
             return $signature_check;
@@ -1335,144 +1502,53 @@ class CNA_REST_Controller
      */
     private function create_delivery_dates_for_subscription($subscription_id, $variant = null, $product_id = null)
     {
+        unset($variant, $product_id);
+        return CNA_Scheduler::provision_subscription_deliveries($subscription_id);
+    }
+
+    /**
+     * Asegura entregas y next_renewal_date si faltan (p. ej. pago confirmado sin webhook completo).
+     *
+     * @param int $subscription_id
+     * @return int
+     */
+    private function ensure_subscription_schedule($subscription_id)
+    {
         global $wpdb;
         $table_prefix = $wpdb->prefix;
 
-        // Obtener suscripción si no tenemos product_id
-        if ($product_id === null) {
-            $subscription = $wpdb->get_row($wpdb->prepare(
-                "SELECT * FROM {$table_prefix}cna_subscriptions WHERE id = %d",
-                $subscription_id
-            ));
-
-            if (!$subscription) {
-                CNA_Security::debug_log('CNA create_delivery_dates_for_subscription: Suscripción no encontrada', array('id' => $subscription_id));
-                return 0;
-            }
-
-            $product_id = $subscription->product_id;
-
-            // Si no se proporcionó variant, obtenerlo de la suscripción
-            if ($variant === null) {
-                $variant_json = $subscription->variant_details;
-                $variant = json_decode($variant_json, true, 512, JSON_UNESCAPED_UNICODE);
-                if (json_last_error() !== JSON_ERROR_NONE) {
-                    $variant = json_decode($variant_json, true);
-                }
-            }
-        } else {
-            // Si tenemos product_id pero no variant, obtenerlo de la suscripción
-            if ($variant === null) {
-                $subscription = $wpdb->get_row($wpdb->prepare(
-                    "SELECT variant_details FROM {$table_prefix}cna_subscriptions WHERE id = %d",
-                    $subscription_id
-                ));
-
-                if ($subscription) {
-                    $variant = json_decode($subscription->variant_details, true, 512, JSON_UNESCAPED_UNICODE);
-                    if (json_last_error() !== JSON_ERROR_NONE) {
-                        $variant = json_decode($subscription->variant_details, true);
-                    }
-                }
-            }
-        }
-
-        if (!$variant || !is_array($variant)) {
-            CNA_Security::debug_log('CNA create_delivery_dates_for_subscription: Variante no disponible', array('id' => $subscription_id));
-            return 0;
-        }
-
-        // Obtener configuración de días del producto
-        $delivery_day = intval(get_post_meta($product_id, '_cna_delivery_day', true));
-        $order_cutoff = intval(get_post_meta($product_id, '_cna_order_cutoff', true));
-
-        // Valores por defecto si no están configurados (Jueves=4, Miércoles=2)
-        if (empty($delivery_day) && $delivery_day !== '0') {
-            $delivery_day = 4; // Jueves
-        }
-        if (empty($order_cutoff) && $order_cutoff !== '0') {
-            $order_cutoff = 2; // Miércoles
-        }
-
-        // Calcular fechas de entrega
-        $delivery_dates = CNA_Scheduler::calculate_delivery_dates(
-            'now',
-            intval($variant['qty']),
-            intval($variant['frequency']),
-            $delivery_day,
-            $order_cutoff
-        );
-
-        if (empty($delivery_dates)) {
-            CNA_Security::debug_log('CNA create_delivery_dates_for_subscription: Sin fechas calculadas', array('id' => $subscription_id));
-            return 0;
-        }
-
-        // Calcular fecha de renovación
-        $last_delivery = end($delivery_dates);
-        $next_renewal = CNA_Scheduler::calculate_next_renewal_date(
-            $last_delivery,
-            intval($variant['frequency'])
-        );
-
-        // Actualizar fecha de renovación
-        $wpdb->update(
-            $table_prefix . 'cna_subscriptions',
-            array('next_renewal_date' => $next_renewal),
-            array('id' => $subscription_id),
-            array('%s'),
-            array('%d')
-        );
-
-        // Calcular monto a cobrar por entrega
-        $advance_percent = floatval($variant['advance_percent']);
-
-        // Obtener precio unitario de la variación usando el nuevo helper
-        $unit_price = CNA_Product_Helper::get_variation_price($product_id, strtolower($variant['size']));
-        if ($unit_price === false) {
-            $unit_price = 0;
-        }
-
-        // Calcular monto a cobrar por entrega (si no pagó 100%)
-        // Si pagó 50% de anticipo, cada entrega debe cobrar el 50% restante del precio unitario
-        // Si pagó 100%, no hay monto a cobrar (amount_to_collect = 0)
-        $amount_per_delivery = 0;
-        if ($advance_percent < 100) {
-            $remaining_percent = (100 - $advance_percent) / 100;
-            // El monto a cobrar por entrega es el porcentaje restante del precio unitario
-            // Cada entrega corresponde a una canasta, por lo que no se divide por qty
-            $amount_per_delivery = $unit_price * $remaining_percent;
-        }
-
-        // Crear registros de entregas
-        $deliveries_created = 0;
-        foreach ($delivery_dates as $date) {
-            $insert_result = $wpdb->insert(
-                $table_prefix . 'cna_deliveries',
-                array(
-                    'subscription_id' => $subscription_id,
-                    'scheduled_date' => $date,
-                    'payment_status' => ($advance_percent >= 100) ? 'paid' : 'pending',
-                    'amount_to_collect' => $amount_per_delivery,
-                    'delivery_status' => 'scheduled',
-                ),
-                array('%d', '%s', '%s', '%f', '%s')
-            );
-            
-            if ($insert_result !== false) {
-                $deliveries_created++;
-            } else {
-                CNA_Security::debug_log('CNA create_delivery_dates: error al insertar entrega', array('date' => $date, 'error' => $wpdb->last_error));
-            }
-        }
-
-        CNA_Security::debug_log('CNA create_delivery_dates_for_subscription', array(
-            'subscription_id' => $subscription_id,
-            'created' => $deliveries_created,
-            'total' => count($delivery_dates),
+        $existing_deliveries = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table_prefix}cna_deliveries WHERE subscription_id = %d",
+            $subscription_id
         ));
 
-        return $deliveries_created;
+        if ($existing_deliveries > 0) {
+            $subscription = $wpdb->get_row($wpdb->prepare(
+                "SELECT next_renewal_date, variant_details FROM {$table_prefix}cna_subscriptions WHERE id = %d",
+                $subscription_id
+            ));
+            if ($subscription && empty($subscription->next_renewal_date)) {
+                $last_delivery = $wpdb->get_var($wpdb->prepare(
+                    "SELECT MAX(scheduled_date) FROM {$table_prefix}cna_deliveries WHERE subscription_id = %d",
+                    $subscription_id
+                ));
+                if ($last_delivery) {
+                    $variant = json_decode($subscription->variant_details, true);
+                    $frequency = max(1, intval(is_array($variant) ? ($variant['frequency'] ?? 1) : 1));
+                    $next_renewal = CNA_Scheduler::calculate_next_renewal_date($last_delivery, $frequency);
+                    $wpdb->update(
+                        $table_prefix . 'cna_subscriptions',
+                        array('next_renewal_date' => $next_renewal),
+                        array('id' => $subscription_id),
+                        array('%s'),
+                        array('%d')
+                    );
+                }
+            }
+            return $existing_deliveries;
+        }
+
+        return CNA_Scheduler::provision_subscription_deliveries($subscription_id);
     }
 
     /**
@@ -1484,10 +1560,12 @@ class CNA_REST_Controller
         $table_prefix = $wpdb->prefix;
 
         if ($subscription->status === 'active') {
+            $repaired = $this->ensure_subscription_schedule($subscription->id);
             return rest_ensure_response(array(
                 'message' => __('Pago ya procesado anteriormente', 'cna-subscriptions'),
                 'subscription_id' => $subscription->id,
                 'already_active' => true,
+                'deliveries_count' => $repaired,
             ));
         }
 
@@ -1554,20 +1632,11 @@ class CNA_REST_Controller
             CNA_Audit_Logger::SEVERITY_CRITICAL
         );
 
-        // Generar fechas de entrega (solo si no existen ya)
-        // Verificar si ya existen entregas para esta suscripción
-        $existing_deliveries = $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM {$table_prefix}cna_deliveries WHERE subscription_id = %d",
-            $subscription->id
-        ));
-
-        if ($existing_deliveries == 0) {
-            // No hay entregas existentes, crearlas
-            $this->create_delivery_dates_for_subscription($subscription->id, null, $subscription->product_id);
-        } else {
-            CNA_Security::debug_log('CNA process_successful_payment: entregas existentes, no se duplican', array(
+        $deliveries_created = $this->ensure_subscription_schedule($subscription->id);
+        if ($deliveries_created > 0) {
+            CNA_Security::debug_log('CNA process_successful_payment: entregas programadas', array(
                 'subscription_id' => $subscription->id,
-                'existing' => $existing_deliveries,
+                'count' => $deliveries_created,
             ));
         }
 
@@ -1792,29 +1861,44 @@ class CNA_REST_Controller
      */
     public function check_register_rate_limit($request)
     {
-        // 3 registrations per hour per IP.
-        return CNA_Security::rate_limit_by_ip('register', 3, HOUR_IN_SECONDS);
+        // 10 registration attempts per hour per IP (includes failed attempts).
+        return CNA_Security::rate_limit_by_ip('register', 10, HOUR_IN_SECONDS);
     }
 
     /**
-     * @param WP_REST_Request $request
+     * Login: only failed attempts count toward the limit.
+     *
+     * @param string $user_login
      * @return true|WP_Error
      */
-    public function check_login_rate_limit($request)
+    private function enforce_login_rate_limit($user_login)
     {
-        // 5 attempts per 15 minutes per IP.
-        $ip_check = CNA_Security::rate_limit_by_ip('login', 5, 15 * MINUTE_IN_SECONDS);
+        $ip_check = CNA_Security::rate_limit_by_ip_check('login', 20);
         if (is_wp_error($ip_check)) {
             return $ip_check;
         }
 
-        // 5 attempts per 15 minutes per email (prevents distributed IP attacks against one account).
-        $data = $request->get_json_params();
-        if (!empty($data['email'])) {
-            return CNA_Security::rate_limit_by_email('login', sanitize_email($data['email']), 5, 15 * MINUTE_IN_SECONDS);
+        if ($user_login !== '') {
+            $email_check = CNA_Security::rate_limit_by_email_check('login', $user_login, 15);
+            if (is_wp_error($email_check)) {
+                return $email_check;
+            }
         }
 
         return true;
+    }
+
+    /**
+     * @param string $user_login
+     */
+    private function record_failed_login_rate_limit($user_login)
+    {
+        $window = 15 * MINUTE_IN_SECONDS;
+        CNA_Security::rate_limit_by_ip_record_failure('login', $window);
+
+        if ($user_login !== '') {
+            CNA_Security::rate_limit_by_email_record_failure('login', $user_login, $window);
+        }
     }
 
     /**
@@ -2573,59 +2657,58 @@ class CNA_REST_Controller
             return new WP_Error('invalid_credentials', __('Correo electrónico o contraseña incorrectos', 'cna-subscriptions'), array('status' => 401));
         }
 
-        // Validar datos requeridos
-        if (empty($data['email']) || empty($data['password'])) {
+        // Validar datos requeridos (campo "email" acepta correo o nombre de usuario)
+        $user_login = !empty($data['email'])
+            ? sanitize_text_field($data['email'])
+            : (!empty($data['login']) ? sanitize_text_field($data['login']) : '');
+
+        if ($user_login === '' || empty($data['password'])) {
             return new WP_Error(
                 'missing_fields',
-                __('El correo electrónico y la contraseña son requeridos', 'cna-subscriptions'),
+                __('El usuario y la contraseña son requeridos', 'cna-subscriptions'),
                 array('status' => 400)
             );
         }
 
-        $email = sanitize_email($data['email']);
-        $password = $data['password'];
-
-        // Uniform error message regardless of whether the email exists — avoids enumeration.
-        $user = get_user_by('email', $email);
-        if (!$user) {
-            return new WP_Error(
-                'invalid_credentials',
-                __('Correo electrónico o contraseña incorrectos', 'cna-subscriptions'),
-                array('status' => 401)
-            );
+        $rate_limit = $this->enforce_login_rate_limit($user_login);
+        if (is_wp_error($rate_limit)) {
+            return $rate_limit;
         }
 
-        // Verificar contraseña
-        if (!wp_check_password($password, $user->user_pass, $user->ID)) {
-            // Log de intento fallido
+        $user = wp_signon(
+            array(
+                'user_login' => $user_login,
+                'user_password' => $data['password'],
+                'remember' => !empty($data['remember']),
+            ),
+            is_ssl()
+        );
+
+        if (is_wp_error($user)) {
+            $this->record_failed_login_rate_limit($user_login);
+
             CNA_Audit_Logger::log(
                 'login_failed',
                 array(
-                    'user_id' => $user->ID,
-                    'email' => $email,
+                    'login' => $user_login,
                     'ip' => $this->get_client_ip(),
-                    'reason' => 'invalid_password',
+                    'reason' => $user->get_error_code(),
                 ),
                 CNA_Audit_Logger::SEVERITY_MEDIUM
             );
 
             return new WP_Error(
                 'invalid_credentials',
-                __('Correo electrónico o contraseña incorrectos', 'cna-subscriptions'),
+                __('Correo electrónico, usuario o contraseña incorrectos', 'cna-subscriptions'),
                 array('status' => 401)
             );
         }
 
-        // Establecer cookies de autenticación
-        wp_set_current_user($user->ID);
-        wp_set_auth_cookie($user->ID, isset($data['remember']) ? $data['remember'] : false);
-
-        // Log de auditoría
         CNA_Audit_Logger::log(
             'user_logged_in',
             array(
                 'user_id' => $user->ID,
-                'email' => $email,
+                'login' => $user_login,
                 'ip' => $this->get_client_ip(),
             ),
             CNA_Audit_Logger::SEVERITY_MEDIUM

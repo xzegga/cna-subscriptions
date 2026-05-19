@@ -49,6 +49,31 @@ class CNA_Security {
     }
 
     /**
+     * Returns WP_Error when the IP has exceeded the limit (does not increment the counter).
+     *
+     * @param string $action
+     * @param int    $max_requests
+     * @return true|WP_Error
+     */
+    public static function rate_limit_by_ip_check($action, $max_requests) {
+        $ip = self::get_client_ip();
+        $key = 'cna_rl_' . sanitize_key($action) . '_' . md5($ip);
+        return self::rate_limit_is_exceeded($key, $max_requests);
+    }
+
+    /**
+     * Records one failed attempt for rate limiting by IP.
+     *
+     * @param string $action
+     * @param int    $window_seconds
+     */
+    public static function rate_limit_by_ip_record_failure($action, $window_seconds) {
+        $ip = self::get_client_ip();
+        $key = 'cna_rl_' . sanitize_key($action) . '_' . md5($ip);
+        self::rate_limit_record_failure($key, $window_seconds);
+    }
+
+    /**
      * Rate limit by email address for auth endpoints (prevents distributed IP attacks).
      *
      * @param string $action
@@ -60,6 +85,27 @@ class CNA_Security {
     public static function rate_limit_by_email($action, $email, $max_requests = 5, $window_seconds = 900) {
         $key = 'cna_rle_' . sanitize_key($action) . '_' . md5(strtolower(trim($email)));
         return self::apply_rate_limit($key, $max_requests, $window_seconds);
+    }
+
+    /**
+     * @param string $action
+     * @param string $email
+     * @param int    $max_requests
+     * @return true|WP_Error
+     */
+    public static function rate_limit_by_email_check($action, $email, $max_requests) {
+        $key = 'cna_rle_' . sanitize_key($action) . '_' . md5(strtolower(trim($email)));
+        return self::rate_limit_is_exceeded($key, $max_requests);
+    }
+
+    /**
+     * @param string $action
+     * @param string $email
+     * @param int    $window_seconds
+     */
+    public static function rate_limit_by_email_record_failure($action, $email, $window_seconds) {
+        $key = 'cna_rle_' . sanitize_key($action) . '_' . md5(strtolower(trim($email)));
+        self::rate_limit_record_failure($key, $window_seconds);
     }
 
     /**
@@ -88,6 +134,40 @@ class CNA_Security {
 
         set_transient($transient_key, (int) $requests + 1, $window_seconds);
         return true;
+    }
+
+    /**
+     * @param string $transient_key
+     * @param int    $max_requests
+     * @return true|WP_Error
+     */
+    private static function rate_limit_is_exceeded($transient_key, $max_requests) {
+        $requests = get_transient($transient_key);
+
+        if ($requests !== false && (int) $requests >= $max_requests) {
+            return new WP_Error(
+                'rate_limit_exceeded',
+                __('Demasiadas solicitudes. Por favor, intenta de nuevo en un momento.', 'cna-subscriptions'),
+                array('status' => 429)
+            );
+        }
+
+        return true;
+    }
+
+    /**
+     * @param string $transient_key
+     * @param int    $window_seconds
+     */
+    private static function rate_limit_record_failure($transient_key, $window_seconds) {
+        $requests = get_transient($transient_key);
+
+        if ($requests === false) {
+            set_transient($transient_key, 1, $window_seconds);
+            return;
+        }
+
+        set_transient($transient_key, (int) $requests + 1, $window_seconds);
     }
 
     /**
