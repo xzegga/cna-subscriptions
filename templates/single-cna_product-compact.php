@@ -15,6 +15,7 @@ get_header();
 $product_id = get_the_ID();
 $variations = CNA_Product_Helper::get_product_variations($product_id);
 $annual_fee = CNA_Product_Helper::get_annual_fee($product_id);
+$min_qty = CNA_Product_Helper::get_min_qty($product_id);
 
 // Obtener frecuencias múltiples
 $frequencies_json = get_post_meta($product_id, '_cna_product_frequencies', true);
@@ -61,6 +62,7 @@ if (empty($frequencies)) {
                             data-variations="<?php echo esc_attr(wp_json_encode($variations, JSON_UNESCAPED_UNICODE)); ?>"
                             data-annual-fee="<?php echo esc_attr($annual_fee); ?>"
                             data-frequencies="<?php echo esc_attr(wp_json_encode($frequencies, JSON_UNESCAPED_UNICODE)); ?>"
+                            data-min-qty="<?php echo esc_attr($min_qty); ?>"
                         ></div>
                         <?php
                         // Agregar user ID para verificación de autenticación

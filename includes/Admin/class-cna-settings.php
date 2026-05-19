@@ -412,7 +412,22 @@ class CNA_Settings
                                                        min="0" 
                                                        max="1" 
                                                        class="small-text" />
-                                                <p class="description"><?php _e('Porcentaje de comisión de la pasarela (ej: 0.06 = 6%)', 'cna-subscriptions'); ?></p>
+                                                <p class="description"><?php _e('Porcentaje de comisión de la pasarela (ej: 0.05 = 5%)', 'cna-subscriptions'); ?></p>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <th scope="row">
+                                                <label for="pagadito_fee_fixed"><?php _e('Fee Fijo Pasarela', 'cna-subscriptions'); ?></label>
+                                            </th>
+                                            <td>
+                                                <input type="number"
+                                                       id="pagadito_fee_fixed"
+                                                       name="pagadito_fee_fixed"
+                                                       value="<?php echo esc_attr($settings['fee_fixed'] ?? '0'); ?>"
+                                                       step="0.01"
+                                                       min="0"
+                                                       class="small-text" />
+                                                <p class="description"><?php _e('Comisión fija por transacción en dólares (ej: 0.25). Se suma al porcentaje al calcular el total a cobrar.', 'cna-subscriptions'); ?></p>
                                             </td>
                                         </tr>
                                         <tr>
@@ -501,6 +516,7 @@ class CNA_Settings
                     'wsk' => sanitize_text_field($_POST['pagadito_wsk'] ?? ''),
                     'sandbox' => isset($_POST['pagadito_sandbox']) && $_POST['pagadito_sandbox'] === '1',
                     'fee' => floatval($_POST['pagadito_fee'] ?? '0.06'),
+                    'fee_fixed' => max(0, floatval($_POST['pagadito_fee_fixed'] ?? '0')),
                 );
 
                 // Guardar opciones de validación de IP (en wp_options, no en settings_json)
@@ -650,7 +666,15 @@ class CNA_Settings
                                                             <?php echo $zone->is_active ? __('Desactivar', 'cna-subscriptions') : __('Activar', 'cna-subscriptions'); ?>
                                                         </button>
                                                     </form>
-                                                    <form method="post" style="display: inline;" onsubmit="return confirm('<?php _e('¿Estás seguro de eliminar esta zona?', 'cna-subscriptions'); ?>');">
+                                                    <form
+                                                        method="post"
+                                                        style="display: inline;"
+                                                        class="cna-confirm-form"
+                                                        data-confirm-title="<?php echo esc_attr(__('Eliminar zona de envío', 'cna-subscriptions')); ?>"
+                                                        data-confirm-message="<?php echo esc_attr(__('¿Estás seguro de eliminar esta zona? Esta acción no se puede deshacer.', 'cna-subscriptions')); ?>"
+                                                        data-confirm-variant="danger"
+                                                        data-confirm-label="<?php echo esc_attr(__('Sí, eliminar', 'cna-subscriptions')); ?>"
+                                                    >
                                                         <?php wp_nonce_field('cna_zone_action', 'cna_zone_nonce'); ?>
                                                         <input type="hidden" name="cna_action" value="delete_zone" />
                                                         <input type="hidden" name="zone_id" value="<?php echo esc_attr($zone->id); ?>" />
@@ -908,7 +932,15 @@ class CNA_Settings
                                                             <?php echo $store->is_active ? __('Desactivar', 'cna-subscriptions') : __('Activar', 'cna-subscriptions'); ?>
                                                         </button>
                                                     </form>
-                                                    <form method="post" style="display: inline;" onsubmit="return confirm('<?php _e('¿Estás seguro de eliminar esta tienda?', 'cna-subscriptions'); ?>');">
+                                                    <form
+                                                        method="post"
+                                                        style="display: inline;"
+                                                        class="cna-confirm-form"
+                                                        data-confirm-title="<?php echo esc_attr(__('Eliminar tienda', 'cna-subscriptions')); ?>"
+                                                        data-confirm-message="<?php echo esc_attr(__('¿Estás seguro de eliminar esta tienda? Esta acción no se puede deshacer.', 'cna-subscriptions')); ?>"
+                                                        data-confirm-variant="danger"
+                                                        data-confirm-label="<?php echo esc_attr(__('Sí, eliminar', 'cna-subscriptions')); ?>"
+                                                    >
                                                         <?php wp_nonce_field('cna_store_action', 'cna_store_nonce'); ?>
                                                         <input type="hidden" name="cna_action" value="delete_store" />
                                                         <input type="hidden" name="store_id" value="<?php echo esc_attr($store->id); ?>" />
@@ -1330,15 +1362,22 @@ class CNA_Settings
                                                             </td>
                                                             <td>
                                                                 <a href="?post_type=cna_product&page=cna-settings&tab=categories&edit=<?php echo $category['id']; ?>" class="button button-small"><?php _e('Editar', 'cna-subscriptions'); ?></a>
-                                                                <form method="POST" style="display: inline;">
+                                                                <form
+                                                                    method="POST"
+                                                                    style="display: inline;"
+                                                                    class="cna-confirm-form"
+                                                                    data-confirm-title="<?php echo esc_attr(__('Eliminar categoría', 'cna-subscriptions')); ?>"
+                                                                    data-confirm-message="<?php echo esc_attr(__('¿Estás seguro de eliminar esta categoría? Esta acción no se puede deshacer.', 'cna-subscriptions')); ?>"
+                                                                    data-confirm-variant="danger"
+                                                                    data-confirm-label="<?php echo esc_attr(__('Sí, eliminar', 'cna-subscriptions')); ?>"
+                                                                >
                                                                     <?php wp_nonce_field('cna_category_nonce', 'cna_category_nonce'); ?>
                                                                     <input type="hidden" name="cna_action" value="delete_category" />
                                                                     <input type="hidden" name="category_id" value="<?php echo $category['id']; ?>" />
-                                                                    <input 
-                                                                        type="submit" 
-                                                                        class="button button-small button-link-delete" 
+                                                                    <input
+                                                                        type="submit"
+                                                                        class="button button-small button-link-delete"
                                                                         value="<?php _e('Eliminar', 'cna-subscriptions'); ?>"
-                                                                        onclick="return confirm('<?php echo esc_attr(__('¿Está seguro?', 'cna-subscriptions')); ?>');"
                                                                     />
                                                                 </form>
                                                             </td>

@@ -222,11 +222,12 @@ class CNA_Cron {
         // Neto esperado
         $net_amount = $advance_amount + $shipping_total + $annual_fee;
 
-        // Reverse Fee Calculation
-        $pasarela_fee = CNA_Payment_Helper::get_gateway_fee();
-        $total_with_fee = $net_amount / (1 - $pasarela_fee);
+        $gateway_totals = CNA_Payment_Helper::calculate_gateway_totals($net_amount);
+        if (is_wp_error($gateway_totals)) {
+            return $net_amount;
+        }
 
-        return $total_with_fee;
+        return $gateway_totals['total_with_fee'];
     }
 
     /**

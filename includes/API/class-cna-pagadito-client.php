@@ -154,6 +154,14 @@ if (!class_exists('Pagadito_APIPG')) {
                 'allow_pending_payments' => $this->allow_pending_payments,
             );
 
+            if (!empty($this->return_url)) {
+                $params['return_url'] = $this->return_url;
+            }
+
+            if (!empty($this->cancel_url)) {
+                $params['cancel_url'] = $this->cancel_url;
+            }
+
             if (function_exists('error_log')) {
                 error_log('CNA Pagadito: All params BEFORE call():');
                 error_log(print_r($params, true));
@@ -453,12 +461,12 @@ class CNA_Pagadito_Client
     private $wsk;
     private $sandbox;
 
-    public function __construct($uid = null, $wsk = null, $sandbox = true)
+    public function __construct($uid = null, $wsk = null, $sandbox = null)
     {
         $config = CNA_Payment_Helper::get_pagadito_config();
         $this->uid = $uid ?: $config['uid'];
         $this->wsk = $wsk ?: $config['wsk'];
-        $this->sandbox = $sandbox !== null ? $sandbox : $config['sandbox'];
+        $this->sandbox = $sandbox !== null ? (bool) $sandbox : (bool) $config['sandbox'];
     }
 
     public function create_transaction($data)
@@ -512,6 +520,23 @@ class CNA_Pagadito_Client
             }
         }
 
+        $subscription_id = isset($data['subscription_id']) ? intval($data['subscription_id']) : 0;
+        if ($subscription_id > 0) {
+            $return_base = rest_url('cna/v1/payment-return');
+            $client->set_return_url(
+                add_query_arg(array('subscription_id' => $subscription_id), $return_base)
+            );
+            $client->set_cancel_url(
+                add_query_arg(
+                    array(
+                        'subscription_id' => $subscription_id,
+                        'status' => 'cancelled',
+                    ),
+                    $return_base
+                )
+            );
+        }
+
         if (!$client->connect()) {
             return new WP_Error(
                 'pagadito_connection_failed',
@@ -520,7 +545,7 @@ class CNA_Pagadito_Client
             );
         }
 
-        $ern = $ern ?: ($data['subscription_id'] ?? uniqid('cna_', true));
+        $ern = $ern ?: (string) ($data['subscription_id'] ?? uniqid('cna_', true));
         $response = $client->exec_trans(sanitize_text_field($ern));
 
         if (empty($response['success'])) {
@@ -643,6 +668,10 @@ class CNA_Pagadito_Client
 
         if (isset($response['token'])) {
             return sanitize_text_field($response['token']);
+        }
+
+        if (isset($response['resource']['token'])) {
+            return sanitize_text_field($response['resource']['token']);
         }
 
         if (isset($response['card_token'])) {

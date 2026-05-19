@@ -53,11 +53,14 @@ const getProductData = () => {
     ? parseFloat(productElement.dataset.annualFee)
     : 0;
   const frequenciesJson = productElement.dataset.frequencies || '[]';
+  const minQty = productElement.dataset.minQty
+    ? parseInt(productElement.dataset.minQty, 10)
+    : 4;
 
   try {
     const variations = JSON.parse(variationsJson);
     const frequencies = JSON.parse(frequenciesJson);
-    return { productId, productName, productImage, variations, annualFee, frequencies };
+    return { productId, productName, productImage, variations, annualFee, frequencies, minQty };
   } catch {
     return null;
   }
@@ -73,6 +76,7 @@ if (productData && productData.productId > 0) {
     variations: productData.variations,
     annualFee: productData.annualFee,
     frequencies: productData.frequencies || [],
+    minQty: productData.minQty,
   });
 }
 
@@ -85,10 +89,23 @@ if (checkoutUserId > 0) {
 }
 
 // 3. Isla del Dashboard de Mi Cuenta
+const getInitialSubscriptionId = (): number => {
+  const accountElement = document.getElementById('cna-my-account');
+  const fromData = accountElement?.dataset.initialSubscriptionId
+    ? parseInt(accountElement.dataset.initialSubscriptionId, 10)
+    : 0;
+  if (fromData > 0) {
+    return fromData;
+  }
+  const fromUrl = new URLSearchParams(window.location.search).get('subscription_id');
+  return fromUrl ? parseInt(fromUrl, 10) : 0;
+};
+
 const accountUserId = getUserId();
 if (accountUserId > 0) {
   mountComponent('cna-my-account', MyAccountDashboard, {
     userId: accountUserId,
+    initialSubscriptionId: getInitialSubscriptionId(),
   });
 }
 

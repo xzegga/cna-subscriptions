@@ -92,6 +92,7 @@ class CNA_Activator
                 'wsk' => $wsk,
                 'sandbox' => $sandbox === '1',
                 'fee' => $fee,
+                'fee_fixed' => '0',
             ), JSON_UNESCAPED_UNICODE);
 
             $wpdb->insert(

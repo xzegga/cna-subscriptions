@@ -57,37 +57,59 @@ class CNA_Assets {
     public function enqueue_scripts() {
         if ($this->is_dev_mode()) {
             $this->enqueue_dev_assets();
-        } else {
-            $this->enqueue_prod_assets();
+            return;
         }
+
+        if ($this->enqueue_prod_assets()) {
+            return;
+        }
+
+        error_log('CNA Subscriptions: no se encontraron assets compilados ni modo dev disponible.');
     }
 
     /**
-     * Detecta si estamos en modo desarrollo
+     * Modo desarrollo: solo cuando CNA_DEV_MODE está activo en wp-config.php.
+     * No inferir dev mode por ausencia de manifest (evita localhost:5173 en producción).
      *
      * @return bool
      */
     private function is_dev_mode() {
-        // Opción 1: Verificar si existe la constante CNA_DEV_MODE en wp-config.php
-        if (defined('CNA_DEV_MODE') && CNA_DEV_MODE === true) {
-            return true;
+        return defined('CNA_DEV_MODE') && CNA_DEV_MODE === true;
+    }
+
+    /**
+     * Ruta del manifest generado por Vite.
+     *
+     * @return string
+     */
+    private function get_manifest_path() {
+        return $this->plugin_dir . 'assets/.vite/manifest.json';
+    }
+
+    /**
+     * Resuelve el JS/CSS compilado cuando no hay manifest (p. ej. zip sin carpeta .vite).
+     *
+     * @return array{js: string, css: string}|null
+     */
+    private function resolve_compiled_assets_without_manifest() {
+        $js_files = glob($this->plugin_dir . 'assets/js/main-*.js');
+        if (empty($js_files)) {
+            return null;
         }
 
-        // Opción 2: Verificar si el manifest.json no existe
-        // Vite genera el manifest en assets/.vite/manifest.json
-        $manifest_path = $this->plugin_dir . 'assets/.vite/manifest.json';
-        if (!file_exists($manifest_path)) {
-            return true;
-        }
+        usort($js_files, function ($a, $b) {
+            return filemtime($b) <=> filemtime($a);
+        });
 
-        // Opción 3: Intentar conectar al servidor de desarrollo (opcional, más lento)
-        // $dev_server = 'http://localhost:' . $this->vite_port;
-        // $response = @wp_remote_get($dev_server . '/@vite/client', array('timeout' => 1));
-        // if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
-        //     return true;
-        // }
+        $css_files = glob($this->plugin_dir . 'assets/css/main-*.css');
+        usort($css_files, function ($a, $b) {
+            return filemtime($b) <=> filemtime($a);
+        });
 
-        return false;
+        return array(
+            'js' => 'js/' . basename($js_files[0]),
+            'css' => !empty($css_files) ? 'css/' . basename($css_files[0]) : '',
+        );
     }
 
     /**
@@ -130,49 +152,59 @@ class CNA_Assets {
 
     /**
      * Encola assets en modo producción (archivos compilados)
+     *
+     * @return bool True si se encolaron assets.
      */
     private function enqueue_prod_assets() {
-        // Vite genera el manifest.json en assets/.vite/manifest.json
-        $manifest_path = $this->plugin_dir . 'assets/.vite/manifest.json';
+        $js_file = '';
+        $css_files = array();
 
-        if (!file_exists($manifest_path)) {
-            error_log('CNA Subscriptions: manifest.json no encontrado en ' . $manifest_path);
-            return;
-        }
-
-        $manifest = json_decode(file_get_contents($manifest_path), true);
-
-        if (!$manifest || !isset($manifest['src/main.tsx'])) {
-            error_log('CNA Subscriptions: manifest.json inválido o entrada src/main.tsx no encontrada');
-            return;
-        }
-
-        $entry = $manifest['src/main.tsx'];
-
-        // Encolar el archivo JavaScript compilado
-        if (isset($entry['file'])) {
-            wp_enqueue_script(
-                'cna-react-app',
-                $this->plugin_url . 'assets/' . $entry['file'],
-                array(),
-                CNA_SUBSCRIPTIONS_VERSION,
-                true
-            );
-        }
-
-        // Encolar los archivos CSS compilados (si existen)
-        if (isset($entry['css']) && is_array($entry['css'])) {
-            foreach ($entry['css'] as $css_file) {
-                wp_enqueue_style(
-                    'cna-react-style',
-                    $this->plugin_url . 'assets/' . $css_file,
-                    array(),
-                    CNA_SUBSCRIPTIONS_VERSION
-                );
+        $manifest_path = $this->get_manifest_path();
+        if (file_exists($manifest_path)) {
+            $manifest = json_decode(file_get_contents($manifest_path), true);
+            if ($manifest && isset($manifest['src/main.tsx'])) {
+                $entry = $manifest['src/main.tsx'];
+                if (!empty($entry['file'])) {
+                    $js_file = $entry['file'];
+                }
+                if (!empty($entry['css']) && is_array($entry['css'])) {
+                    $css_files = $entry['css'];
+                }
+            } else {
+                error_log('CNA Subscriptions: manifest.json inválido en ' . $manifest_path);
+            }
+        } else {
+            error_log('CNA Subscriptions: manifest.json no encontrado en ' . $manifest_path . '; usando fallback por glob.');
+            $fallback = $this->resolve_compiled_assets_without_manifest();
+            if ($fallback) {
+                $js_file = $fallback['js'];
+                if ($fallback['css'] !== '') {
+                    $css_files = array($fallback['css']);
+                }
             }
         }
 
-        // Localizar script con datos de WordPress (nonce, etc.)
+        if ($js_file === '') {
+            return false;
+        }
+
+        wp_enqueue_script(
+            'cna-react-app',
+            $this->plugin_url . 'assets/' . $js_file,
+            array(),
+            CNA_SUBSCRIPTIONS_VERSION,
+            true
+        );
+
+        foreach ($css_files as $css_file) {
+            wp_enqueue_style(
+                'cna-react-style',
+                $this->plugin_url . 'assets/' . $css_file,
+                array(),
+                CNA_SUBSCRIPTIONS_VERSION
+            );
+        }
+
         wp_localize_script(
             'cna-react-app',
             'wpApiSettings',
@@ -181,6 +213,8 @@ class CNA_Assets {
                 'restUrl' => rest_url('cna/v1/'),
             )
         );
+
+        return true;
     }
 
     /**

@@ -175,6 +175,22 @@ class CNA_REST_Controller
             ),
         ));
 
+        // POST /subscriptions/(?P<id>\d+)/action
+        register_rest_route(self::NAMESPACE , '/subscriptions/(?P<id>\d+)/action', array(
+            'methods' => 'POST',
+            'callback' => array($this, 'perform_subscription_action'),
+            'permission_callback' => array($this, 'check_user_permission'),
+            'args' => array(
+                'id' => array(
+                    'required' => true,
+                    'type' => 'integer',
+                    'validate_callback' => function ($param) {
+                        return is_numeric($param) && $param > 0;
+                    },
+                ),
+            ),
+        ));
+
         // GET /locations
         register_rest_route(self::NAMESPACE , '/locations', array(
             'methods' => 'GET',
@@ -475,10 +491,14 @@ class CNA_REST_Controller
         $frequency = intval($variant['frequency']);
         $advance_percent = floatval($variant['advance_percent']);
 
-        if ($qty <= 0 || $qty > 100) {
+        $min_qty = CNA_Product_Helper::get_min_qty($product_id);
+        if ($qty < $min_qty || $qty > 100) {
             return new WP_Error(
                 'invalid_quantity',
-                __('La cantidad debe estar entre 1 y 100', 'cna-subscriptions'),
+                sprintf(
+                    __('La cantidad debe estar entre %d y 100', 'cna-subscriptions'),
+                    $min_qty
+                ),
                 array('status' => 400)
             );
         }
@@ -739,6 +759,11 @@ class CNA_REST_Controller
                 'redirect_url' => rest_url('cna/v1/payment-return?subscription_id=' . $subscription_id . '&status=success&sandbox=1'),
                 'token' => 'sandbox_token_' . $subscription_id,
                 'transaction_id' => 'SANDBOX_' . time() . '_' . $subscription_id,
+                'approval_number' => 'SANDBOX_' . $subscription_id,
+                'transaction_type' => 'payment_to_accredit',
+                'currency' => 'USD',
+                'date' => wp_date('d/m/Y'),
+                'hour' => wp_date('H:i'),
             );
             
             // NO enviar email aquí - se enviará en process_successful_payment_sandbox que llama a process_successful_payment
@@ -771,6 +796,16 @@ class CNA_REST_Controller
                 'param2' => $product_id,       // product_id
                 'param3' => $user_id,          // user_id
             ),
+        );
+
+        // ERN = subscription_id (Pagadito lo devuelve como referencia al regresar del pago)
+        $pagadito_ern = (string) $subscription_id;
+        $wpdb->update(
+            $table_prefix . 'cna_subscriptions',
+            array('pagadito_ern' => $pagadito_ern),
+            array('id' => $subscription_id),
+            array('%s'),
+            array('%d')
         );
 
         error_log('CNA create_order: Llamando a Pagadito para crear transacción tokenizada');
@@ -856,59 +891,113 @@ class CNA_REST_Controller
     }
 
     /**
+     * Resuelve una suscripción a partir de los parámetros del retorno de Pagadito.
+     *
+     * @param WP_REST_Request $request
+     * @return object|null
+     */
+    private function resolve_subscription_from_payment_return($request)
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'cna_subscriptions';
+
+        $subscription_id = intval($request->get_param('subscription_id'));
+        if ($subscription_id > 0) {
+            $subscription = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$table} WHERE id = %d",
+                $subscription_id
+            ));
+            if ($subscription) {
+                return $subscription;
+            }
+        }
+
+        // Pagadito puede enviar el ERN con distintos nombres de parámetro
+        $ern_candidates = array(
+            $request->get_param('ern'),
+            $request->get_param('ERN'),
+            $request->get_param('order_id'),
+            $request->get_param('reference'),
+            $request->get_param('ref'),
+        );
+
+        foreach ($ern_candidates as $ern) {
+            if (empty($ern)) {
+                continue;
+            }
+
+            $ern = sanitize_text_field($ern);
+
+            $subscription = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$table} WHERE pagadito_ern = %s",
+                $ern
+            ));
+            if ($subscription) {
+                return $subscription;
+            }
+
+            if (ctype_digit($ern)) {
+                $subscription = $wpdb->get_row($wpdb->prepare(
+                    "SELECT * FROM {$table} WHERE id = %d",
+                    intval($ern)
+                ));
+                if ($subscription) {
+                    return $subscription;
+                }
+            }
+        }
+
+        // custom_params enviados en la URL de retorno
+        $param1 = $request->get_param('param1');
+        if (!empty($param1) && ctype_digit((string) $param1)) {
+            return $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$table} WHERE id = %d",
+                intval($param1)
+            ));
+        }
+
+        return null;
+    }
+
+    /**
      * Endpoint: GET /payment-return
      * Maneja el retorno del usuario después del pago en Pagadito
      */
     public function handle_payment_return($request)
     {
-        $subscription_id = $request->get_param('subscription_id');
-        $order_id = $request->get_param('order_id'); // ERN de Pagadito
         $status = $request->get_param('status');
         $transaction_id = $request->get_param('transaction_id');
         $token = $request->get_param('token');
 
         error_log('CNA payment_return: Retorno de Pagadito recibido');
-        error_log('CNA payment_return: subscription_id=' . $subscription_id . ', order_id=' . $order_id . ', status=' . $status);
+        error_log('CNA payment_return: query_params=' . wp_json_encode($request->get_query_params()));
 
-        global $wpdb;
-        $table_prefix = $wpdb->prefix;
-        $subscription = null;
-
-        // Si no hay subscription_id, intentar buscar por order_id (ern)
-        if (empty($subscription_id) && !empty($order_id)) {
-            error_log('CNA payment_return: Buscando suscripción por ERN: ' . $order_id);
-            $subscription = $wpdb->get_row($wpdb->prepare(
-                "SELECT * FROM {$table_prefix}cna_subscriptions WHERE pagadito_ern = %s",
-                sanitize_text_field($order_id)
-            ));
-            
-            if ($subscription) {
-                $subscription_id = $subscription->id;
-                error_log('CNA payment_return: Suscripción encontrada por ERN: ID=' . $subscription_id);
-            } else {
-                error_log('CNA payment_return: No se encontró suscripción con ERN: ' . $order_id);
-                wp_safe_redirect(home_url('/confirmacion-orden?error=subscription_not_found'));
-                exit;
-            }
-        } elseif (empty($subscription_id)) {
-            // No hay subscription_id ni order_id - esto no debería pasar, pero redirigir a página de error genérica
-            error_log('CNA payment_return: No se proporcionó subscription_id ni order_id');
-            wp_safe_redirect(home_url('/confirmacion-orden?error=missing_subscription_id'));
-            exit;
-        }
-
-        // Si aún no tenemos la suscripción, obtenerla por ID
-        if (empty($subscription)) {
-            $subscription = $wpdb->get_row($wpdb->prepare(
-                "SELECT * FROM {$table_prefix}cna_subscriptions WHERE id = %d",
-                intval($subscription_id)
-            ));
-        }
+        $subscription = $this->resolve_subscription_from_payment_return($request);
 
         if (!$subscription) {
-            error_log('CNA payment_return: Suscripción no encontrada con ID: ' . $subscription_id);
+            error_log('CNA payment_return: No se pudo resolver la suscripción');
             wp_safe_redirect(home_url('/confirmacion-orden?error=subscription_not_found'));
             exit;
+        }
+
+        $subscription_id = $subscription->id;
+        error_log('CNA payment_return: Suscripción resuelta ID=' . $subscription_id);
+
+        if (empty($subscription->payment_transaction_json) && class_exists('CNA_Payment_Transaction')) {
+            $return_payload = array_merge(
+                $request->get_query_params(),
+                array_filter(array(
+                    'transaction_id' => $transaction_id,
+                    'token' => $token,
+                    'status' => $status,
+                    'currency' => 'USD',
+                ))
+            );
+            CNA_Payment_Transaction::save_from_webhook(
+                $subscription_id,
+                $this->resolve_payment_provider_slug(),
+                $return_payload
+            );
         }
 
         // Si el estado es cancelled o failed, redirigir a página de error/cancelación
@@ -1020,10 +1109,28 @@ class CNA_REST_Controller
 
         $data = $request->get_json_params();
 
-        // Si no viene JSON, intentar leer del body raw
+        // Si no viene JSON, intentar leer del body raw o parámetros POST
         if (empty($data)) {
             $body = $request->get_body();
             $data = json_decode($body, true);
+        }
+        if (empty($data) || !is_array($data)) {
+            $data = $request->get_body_params();
+        }
+        if (empty($data) || !is_array($data)) {
+            $data = $_POST;
+        }
+
+        if (!empty($data['custom_params']) && is_array($data['custom_params'])) {
+            foreach ($data['custom_params'] as $param_key => $param_value) {
+                if (!isset($data[$param_key])) {
+                    $data[$param_key] = $param_value;
+                }
+            }
+        }
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('CNA webhook pagadito payload: ' . wp_json_encode(self::redact_webhook_payload($data)));
         }
 
         // Validar que venga información básica
@@ -1035,13 +1142,29 @@ class CNA_REST_Controller
             );
         }
 
-        // Extraer información de la transacción
-        $transaction_id = isset($data['transaction_id']) ? $data['transaction_id'] : '';
-        $status = isset($data['status']) ? strtolower($data['status']) : '';
-        // Pagadito requiere que custom_params use param1, param2, param3
-        $subscription_id = isset($data['custom_params']['param1'])
-            ? intval($data['custom_params']['param1'])
-            : 0;
+        // Formato oficial: { id, event_type, event_create_timestamp, resource: { ern, status, reference, ... } }
+        $resource = isset($data['resource']) && is_array($data['resource']) ? $data['resource'] : array();
+        $flat = class_exists('CNA_Payment_Transaction')
+            ? CNA_Payment_Transaction::flatten_pagadito_webhook($data)
+            : array_merge($data, $resource);
+
+        $transaction_id = isset($resource['reference']) ? $resource['reference'] : '';
+        if (empty($transaction_id) && isset($data['transaction_id'])) {
+            $transaction_id = $data['transaction_id'];
+        }
+
+        $status_raw = isset($resource['status']) ? $resource['status'] : ($data['status'] ?? '');
+        $status = strtolower((string) $status_raw);
+
+        // ERN = referencia de orden enviada al crear la transacción (subscription_id)
+        $subscription_id = 0;
+        if (!empty($resource['ern']) && ctype_digit((string) $resource['ern'])) {
+            $subscription_id = intval($resource['ern']);
+        } elseif (isset($data['custom_params']['param1'])) {
+            $subscription_id = intval($data['custom_params']['param1']);
+        } elseif (isset($flat['param1'])) {
+            $subscription_id = intval($flat['param1']);
+        }
 
         if (empty($subscription_id)) {
             return new WP_Error(
@@ -1068,12 +1191,10 @@ class CNA_REST_Controller
             );
         }
 
-        // Procesar según el estado
-        if ($status === 'completed' || $status === 'approved' || $status === 'success') {
-            // Pago exitoso
+        // Procesar según el estado (oficial: COMPLETED, VERIFIED, REJECTED, EXPIRED)
+        if (in_array($status, array('completed', 'verified', 'approved', 'success'), true)) {
             return $this->process_successful_payment($subscription, $data);
-        } elseif ($status === 'failed' || $status === 'rejected' || $status === 'cancelled') {
-            // Pago fallido
+        } elseif (in_array($status, array('failed', 'rejected', 'cancelled', 'expired'), true)) {
             return $this->process_failed_payment($subscription, $data);
         }
 
@@ -1294,16 +1415,30 @@ class CNA_REST_Controller
             }
         }
 
+        $format = array_fill(0, count($update_data), '%s');
+
         $wpdb->update(
             $table_prefix . 'cna_subscriptions',
             $update_data,
             array('id' => $subscription->id),
-            array('%s', '%s'),
+            $format,
             array('%d')
         );
 
+        $provider_slug = $this->resolve_payment_provider_slug();
+        if (class_exists('CNA_Payment_Transaction')) {
+            CNA_Payment_Transaction::save_from_webhook(
+                $subscription->id,
+                $provider_slug,
+                is_array($webhook_data) ? $webhook_data : array()
+            );
+        }
+
         // Log de pago exitoso
-        $transaction_id = isset($webhook_data['transaction_id']) ? $webhook_data['transaction_id'] : '';
+        $resource = isset($webhook_data['resource']) && is_array($webhook_data['resource'])
+            ? $webhook_data['resource']
+            : array();
+        $transaction_id = $resource['reference'] ?? ($webhook_data['transaction_id'] ?? '');
         CNA_Audit_Logger::log(
             CNA_Audit_Logger::EVENT_PAYMENT_SUCCESS,
             array(
@@ -1371,6 +1506,15 @@ class CNA_REST_Controller
             array('%s'),
             array('%d')
         );
+
+        $provider_slug = $this->resolve_payment_provider_slug();
+        if (class_exists('CNA_Payment_Transaction')) {
+            $failed_payload = is_array($webhook_data) ? $webhook_data : array();
+            if (empty($failed_payload['status'])) {
+                $failed_payload['status'] = 'failed';
+            }
+            CNA_Payment_Transaction::save_from_webhook($subscription->id, $provider_slug, $failed_payload);
+        }
 
         // Log de pago fallido
         $transaction_id = isset($webhook_data['transaction_id']) ? $webhook_data['transaction_id'] : '';
@@ -1484,18 +1628,6 @@ class CNA_REST_Controller
         // Neto esperado
         $net_amount = $advance_amount + $shipping_total + $annual_fee;
 
-        // Reverse Fee Calculation
-        $pasarela_fee = CNA_Payment_Helper::get_gateway_fee();
-
-        // Validar que el fee sea válido (no puede ser >= 100%)
-        if ($pasarela_fee >= 1 || $pasarela_fee < 0) {
-            return new WP_Error(
-                'invalid_gateway_fee',
-                __('Configuración de fee de pasarela inválida', 'cna-subscriptions'),
-                array('status' => 500)
-            );
-        }
-
         // Validar que el monto neto sea positivo
         if ($net_amount <= 0) {
             return new WP_Error(
@@ -1514,7 +1646,14 @@ class CNA_REST_Controller
             );
         }
 
-        $total_with_fee = $net_amount / (1 - $pasarela_fee);
+        $gateway_totals = CNA_Payment_Helper::calculate_gateway_totals($net_amount);
+        if (is_wp_error($gateway_totals)) {
+            return $gateway_totals;
+        }
+
+        $pasarela_fee = $gateway_totals['fee_percent'];
+        $pasarela_fee_fixed = $gateway_totals['fee_fixed'];
+        $total_with_fee = $gateway_totals['total_with_fee'];
 
         // Validar que el total con fee no exceda límites razonables
         if ($total_with_fee > 15000) {
@@ -1536,7 +1675,8 @@ class CNA_REST_Controller
             'shipping_total' => $shipping_total,
             'net_amount' => $net_amount,
             'pasarela_fee' => $pasarela_fee,
-            'fee_amount' => $total_with_fee - $net_amount,
+            'pasarela_fee_fixed' => $pasarela_fee_fixed,
+            'fee_amount' => $gateway_totals['fee_amount'],
             'total_with_fee' => $total_with_fee,
         );
     }
@@ -1571,6 +1711,38 @@ class CNA_REST_Controller
         // Incrementar contador
         set_transient($transient_key, $requests + 1, 60);
         return true;
+    }
+
+    /**
+     * Slug de la pasarela activa (extensible a futuros métodos).
+     *
+     * @return string
+     */
+    private function resolve_payment_provider_slug()
+    {
+        $gateway = CNA_Payment_Helper::get_active_gateway();
+        if ($gateway && !empty($gateway->slug)) {
+            return sanitize_key($gateway->slug);
+        }
+
+        return 'pagadito';
+    }
+
+    /**
+     * Elimina datos sensibles del payload antes de loguear.
+     *
+     * @param array $payload
+     * @return array
+     */
+    private static function redact_webhook_payload(array $payload)
+    {
+        $redacted = $payload;
+        foreach (array('token', 'wsk') as $sensitive) {
+            if (isset($redacted[$sensitive])) {
+                $redacted[$sensitive] = '[redacted]';
+            }
+        }
+        return $redacted;
     }
 
     /**
@@ -1650,9 +1822,39 @@ class CNA_REST_Controller
             $user_id
         ));
 
+        $safe_subscriptions = array();
+        foreach ($subscriptions as $row) {
+            $safe_subscriptions[] = $this->format_subscription_for_user($row);
+        }
+
         return rest_ensure_response(array(
-            'subscriptions' => $subscriptions,
+            'subscriptions' => $safe_subscriptions,
         ));
+    }
+
+    /**
+     * Formato seguro de suscripción para el cliente (sin token de pago).
+     *
+     * @param object $subscription
+     * @return array
+     */
+    private function format_subscription_for_user($subscription)
+    {
+        return array(
+            'id' => isset($subscription->id) ? (int) $subscription->id : 0,
+            'user_id' => isset($subscription->user_id) ? (int) $subscription->user_id : 0,
+            'product_id' => isset($subscription->product_id) ? (int) $subscription->product_id : 0,
+            'product_name' => isset($subscription->product_name) ? $subscription->product_name : '',
+            'status' => isset($subscription->status) ? $subscription->status : '',
+            'is_auto_renew' => !empty($subscription->is_auto_renew) ? 1 : 0,
+            'has_payment_token' => !empty($subscription->pagadito_token),
+            'next_renewal_date' => isset($subscription->next_renewal_date) ? $subscription->next_renewal_date : '',
+            'shipping_address_json' => isset($subscription->shipping_address_json) ? $subscription->shipping_address_json : '',
+            'variant_details' => isset($subscription->variant_details) ? $subscription->variant_details : '',
+            'shipping_cost_unit' => isset($subscription->shipping_cost_unit) ? floatval($subscription->shipping_cost_unit) : 0,
+            'created_at' => isset($subscription->created_at) ? $subscription->created_at : '',
+            'updated_at' => isset($subscription->updated_at) ? $subscription->updated_at : '',
+        );
     }
 
     /**
@@ -1697,8 +1899,24 @@ class CNA_REST_Controller
             $subscription_id
         ));
 
+        $normalized = array();
+        foreach ($deliveries as $row) {
+            $normalized[] = array(
+                'id' => isset($row->id) ? (int) $row->id : 0,
+                'subscription_id' => isset($row->subscription_id) ? (int) $row->subscription_id : 0,
+                'scheduled_date' => isset($row->scheduled_date) ? $row->scheduled_date : '',
+                'payment_status' => isset($row->payment_status) ? $row->payment_status : '',
+                'amount_to_collect' => isset($row->amount_to_collect) ? floatval($row->amount_to_collect) : 0.0,
+                'delivery_status' => isset($row->delivery_status) ? $row->delivery_status : '',
+                'delivered_at' => isset($row->delivered_at) ? $row->delivered_at : null,
+                'notes' => isset($row->notes) ? $row->notes : null,
+                'created_at' => isset($row->created_at) ? $row->created_at : null,
+                'updated_at' => isset($row->updated_at) ? $row->updated_at : null,
+            );
+        }
+
         return rest_ensure_response(array(
-            'deliveries' => $deliveries,
+            'deliveries' => $normalized,
         ));
     }
 
@@ -1708,10 +1926,24 @@ class CNA_REST_Controller
      */
     public function toggle_subscription_renewal($request)
     {
+        $data = $request->get_json_params();
+        $enabled = isset($data['enabled']) ? (bool) $data['enabled'] : false;
+        $action = $enabled ? 'enable_auto_renew' : 'disable_auto_renew';
+
+        $request->set_param('action', $action);
+        return $this->perform_subscription_action($request);
+    }
+
+    /**
+     * Endpoint: POST /subscriptions/{id}/action
+     * Acciones del cliente: pausar, reactivar, cancelar, auto-renovación.
+     */
+    public function perform_subscription_action($request)
+    {
         $subscription_id = intval($request->get_param('id'));
         $user_id = get_current_user_id();
         $data = $request->get_json_params();
-        $enabled = isset($data['enabled']) ? (bool) $data['enabled'] : false;
+        $action = isset($data['action']) ? sanitize_text_field($data['action']) : '';
 
         if ($user_id === 0) {
             return new WP_Error(
@@ -1721,10 +1953,25 @@ class CNA_REST_Controller
             );
         }
 
+        $allowed_actions = array(
+            'pause',
+            'activate',
+            'cancel',
+            'enable_auto_renew',
+            'disable_auto_renew',
+        );
+
+        if (!in_array($action, $allowed_actions, true)) {
+            return new WP_Error(
+                'invalid_action',
+                __('Acción no válida', 'cna-subscriptions'),
+                array('status' => 400)
+            );
+        }
+
         global $wpdb;
         $table_prefix = $wpdb->prefix;
 
-        // Verificar que la suscripción pertenece al usuario
         $subscription = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$table_prefix}cna_subscriptions WHERE id = %d AND user_id = %d",
             $subscription_id,
@@ -1739,30 +1986,247 @@ class CNA_REST_Controller
             );
         }
 
-        // Actualizar auto-renovación
-        $wpdb->update(
-            $table_prefix . 'cna_subscriptions',
-            array('is_auto_renew' => $enabled ? 1 : 0),
-            array('id' => $subscription_id),
-            array('%d'),
-            array('%d')
-        );
+        $result = $this->apply_subscription_action($subscription, $action, 'customer');
 
-        // Log de auditoría
-        CNA_Audit_Logger::log(
-            'subscription_updated',
-            array(
-                'subscription_id' => $subscription_id,
-                'user_id' => $user_id,
-                'action' => $enabled ? 'auto_renew_enabled' : 'auto_renew_disabled',
-            ),
-            CNA_Audit_Logger::SEVERITY_MEDIUM
-        );
+        if (is_wp_error($result)) {
+            return $result;
+        }
+
+        $updated = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$table_prefix}cna_subscriptions WHERE id = %d",
+            $subscription_id
+        ));
 
         return rest_ensure_response(array(
             'success' => true,
-            'is_auto_renew' => $enabled,
+            'message' => $result['message'],
+            'status' => $updated->status,
+            'is_auto_renew' => !empty($updated->is_auto_renew) ? 1 : 0,
+            'subscription' => $this->format_subscription_for_user($updated),
         ));
+    }
+
+    /**
+     * Aplica una acción de suscripción (compartida con lógica de administración).
+     *
+     * @param object $subscription
+     * @param string $action
+     * @param string $by admin|customer
+     * @return array|WP_Error
+     */
+    private function apply_subscription_action($subscription, $action, $by = 'customer')
+    {
+        global $wpdb;
+        $table_prefix = $wpdb->prefix;
+        $subscription_id = (int) $subscription->id;
+
+        switch ($action) {
+            case 'disable_auto_renew':
+                if (empty($subscription->is_auto_renew)) {
+                    return new WP_Error(
+                        'invalid_state',
+                        __('La renovación automática ya está desactivada', 'cna-subscriptions'),
+                        array('status' => 400)
+                    );
+                }
+
+                $updated = $wpdb->update(
+                    $table_prefix . 'cna_subscriptions',
+                    array('is_auto_renew' => 0),
+                    array('id' => $subscription_id),
+                    array('%d'),
+                    array('%d')
+                );
+
+                if ($updated === false) {
+                    return new WP_Error(
+                        'update_failed',
+                        __('Error al actualizar', 'cna-subscriptions'),
+                        array('status' => 500)
+                    );
+                }
+
+                if (class_exists('CNA_Audit_Logger')) {
+                    CNA_Audit_Logger::log(
+                        'subscription_updated',
+                        array(
+                            'subscription_id' => $subscription_id,
+                            'action' => 'auto_renew_disabled',
+                            'by' => $by,
+                            'user_id' => get_current_user_id(),
+                        ),
+                        CNA_Audit_Logger::SEVERITY_MEDIUM
+                    );
+                }
+
+                return array(
+                    'message' => __('Renovación automática desactivada. Las entregas actuales no se modifican.', 'cna-subscriptions'),
+                );
+
+            case 'enable_auto_renew':
+                if (!empty($subscription->is_auto_renew)) {
+                    return new WP_Error(
+                        'invalid_state',
+                        __('La renovación automática ya está activa', 'cna-subscriptions'),
+                        array('status' => 400)
+                    );
+                }
+
+                if ($subscription->status !== 'active') {
+                    return new WP_Error(
+                        'invalid_state',
+                        __('Solo puedes activar la auto-renovación en suscripciones activas', 'cna-subscriptions'),
+                        array('status' => 400)
+                    );
+                }
+
+                if (empty($subscription->pagadito_token)) {
+                    return new WP_Error(
+                        'missing_token',
+                        __('No hay método de pago guardado. Completa un pago en Pagadito primero.', 'cna-subscriptions'),
+                        array('status' => 400)
+                    );
+                }
+
+                $updated = $wpdb->update(
+                    $table_prefix . 'cna_subscriptions',
+                    array('is_auto_renew' => 1),
+                    array('id' => $subscription_id),
+                    array('%d'),
+                    array('%d')
+                );
+
+                if ($updated === false) {
+                    return new WP_Error(
+                        'update_failed',
+                        __('Error al actualizar', 'cna-subscriptions'),
+                        array('status' => 500)
+                    );
+                }
+
+                if (class_exists('CNA_Audit_Logger')) {
+                    CNA_Audit_Logger::log(
+                        'subscription_updated',
+                        array(
+                            'subscription_id' => $subscription_id,
+                            'action' => 'auto_renew_enabled',
+                            'by' => $by,
+                            'user_id' => get_current_user_id(),
+                        ),
+                        CNA_Audit_Logger::SEVERITY_MEDIUM
+                    );
+                }
+
+                return array(
+                    'message' => __('Renovación automática activada', 'cna-subscriptions'),
+                );
+
+            case 'activate':
+                if ($subscription->status === 'active') {
+                    return new WP_Error(
+                        'invalid_state',
+                        __('La suscripción ya está activa', 'cna-subscriptions'),
+                        array('status' => 400)
+                    );
+                }
+
+                if ($subscription->status !== 'paused') {
+                    return new WP_Error(
+                        'invalid_state',
+                        __('Solo puedes reactivar suscripciones pausadas', 'cna-subscriptions'),
+                        array('status' => 400)
+                    );
+                }
+
+                $new_status = 'active';
+                $action_message = __('Suscripción reactivada', 'cna-subscriptions');
+                break;
+
+            case 'pause':
+                if ($subscription->status !== 'active') {
+                    return new WP_Error(
+                        'invalid_state',
+                        __('Solo puedes pausar suscripciones activas', 'cna-subscriptions'),
+                        array('status' => 400)
+                    );
+                }
+
+                $new_status = 'paused';
+                $action_message = __('Suscripción pausada', 'cna-subscriptions');
+                break;
+
+            case 'cancel':
+                if ($subscription->status === 'cancelled') {
+                    return new WP_Error(
+                        'invalid_state',
+                        __('La suscripción ya está cancelada', 'cna-subscriptions'),
+                        array('status' => 400)
+                    );
+                }
+
+                if (!in_array($subscription->status, array('active', 'paused', 'pending', 'payment_failed'), true)) {
+                    return new WP_Error(
+                        'invalid_state',
+                        __('No se puede cancelar esta suscripción en su estado actual', 'cna-subscriptions'),
+                        array('status' => 400)
+                    );
+                }
+
+                $new_status = 'cancelled';
+                $action_message = __('Suscripción cancelada', 'cna-subscriptions');
+                break;
+
+            default:
+                return new WP_Error(
+                    'invalid_action',
+                    __('Acción no válida', 'cna-subscriptions'),
+                    array('status' => 400)
+                );
+        }
+
+        if (!isset($new_status)) {
+            return new WP_Error(
+                'internal_error',
+                __('Error interno al procesar la acción', 'cna-subscriptions'),
+                array('status' => 500)
+            );
+        }
+
+        $updated = $wpdb->update(
+            $table_prefix . 'cna_subscriptions',
+            array('status' => $new_status),
+            array('id' => $subscription_id),
+            array('%s'),
+            array('%d')
+        );
+
+        if ($updated === false) {
+            return new WP_Error(
+                'update_failed',
+                __('Error al actualizar', 'cna-subscriptions'),
+                array('status' => 500)
+            );
+        }
+
+        if (class_exists('CNA_Audit_Logger')) {
+            CNA_Audit_Logger::log(
+                'subscription_status_changed',
+                array(
+                    'subscription_id' => $subscription_id,
+                    'from' => $subscription->status,
+                    'to' => $new_status,
+                    'by' => $by,
+                    'user_id' => get_current_user_id(),
+                ),
+                CNA_Audit_Logger::SEVERITY_MEDIUM
+            );
+        }
+
+        if (class_exists('CNA_Mailer')) {
+            CNA_Mailer::send_subscription_status_changed($subscription_id, $new_status, $action_message);
+        }
+
+        return array('message' => $action_message);
     }
 
     /**
@@ -2072,9 +2536,11 @@ class CNA_REST_Controller
     public function get_gateway_fee($request)
     {
         $fee = CNA_Payment_Helper::get_gateway_fee();
+        $fee_fixed = CNA_Payment_Helper::get_gateway_fee_fixed();
         return rest_ensure_response(array(
             'fee' => $fee,
             'fee_percent' => $fee * 100,
+            'fee_fixed' => $fee_fixed,
         ));
     }
 

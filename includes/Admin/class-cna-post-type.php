@@ -316,6 +316,7 @@ class CNA_Post_Type
             <?php
             $delivery_day = get_post_meta($post->ID, '_cna_delivery_day', true);
             $order_cutoff = get_post_meta($post->ID, '_cna_order_cutoff', true);
+            $min_qty = CNA_Product_Helper::get_min_qty($post->ID);
 
             // Obtener frecuencias (ahora es un array)
             $frequencies_json = get_post_meta($post->ID, '_cna_product_frequencies', true);
@@ -343,6 +344,16 @@ class CNA_Post_Type
             }
             ?>
             <table class="form-table">
+                <tr>
+                    <th><label for="cna_min_qty"><?php _e('Cantidad Mínima de Entregas', 'cna-subscriptions'); ?></label></th>
+                    <td>
+                        <input type="number" id="cna_min_qty" name="cna_min_qty"
+                            value="<?php echo esc_attr($min_qty); ?>" min="1" max="100" class="small-text" />
+                        <p class="description">
+                            <?php _e('Número mínimo de entregas que el cliente debe seleccionar al suscribirse', 'cna-subscriptions'); ?>
+                        </p>
+                    </td>
+                </tr>
                 <tr>
                     <th><label for="cna_delivery_day"><?php _e('Día de Entrega', 'cna-subscriptions'); ?></label></th>
                     <td>
@@ -505,9 +516,16 @@ class CNA_Post_Type
                 // Eliminar variación
                 $(document).on('click', '.cna-remove-variation', function (e) {
                     e.preventDefault();
-                    if (confirm('<?php echo esc_js(__('¿Estás seguro de eliminar esta variación?', 'cna-subscriptions')); ?>')) {
-                        $(this).closest('.cna-variation-item').remove();
-                    }
+                    var $item = $(this).closest('.cna-variation-item');
+                    CNAAdminModal.confirm({
+                        title: '<?php echo esc_js(__('Eliminar variación', 'cna-subscriptions')); ?>',
+                        message: '<?php echo esc_js(__('¿Estás seguro de eliminar esta variación?', 'cna-subscriptions')); ?>',
+                        variant: 'danger',
+                        confirmLabel: '<?php echo esc_js(__('Sí, eliminar', 'cna-subscriptions')); ?>',
+                        onConfirm: function () {
+                            $item.remove();
+                        }
+                    });
                 });
 
                 // Agregar nueva frecuencia
@@ -522,9 +540,16 @@ class CNA_Post_Type
                 // Eliminar frecuencia
                 $(document).on('click', '.cna-remove-frequency', function (e) {
                     e.preventDefault();
-                    if (confirm('<?php echo esc_js(__('¿Estás seguro de eliminar esta frecuencia?', 'cna-subscriptions')); ?>')) {
-                        $(this).closest('.cna-frequency-item').remove();
-                    }
+                    var $item = $(this).closest('.cna-frequency-item');
+                    CNAAdminModal.confirm({
+                        title: '<?php echo esc_js(__('Eliminar frecuencia', 'cna-subscriptions')); ?>',
+                        message: '<?php echo esc_js(__('¿Estás seguro de eliminar esta frecuencia?', 'cna-subscriptions')); ?>',
+                        variant: 'danger',
+                        confirmLabel: '<?php echo esc_js(__('Sí, eliminar', 'cna-subscriptions')); ?>',
+                        onConfirm: function () {
+                            $item.remove();
+                        }
+                    });
                 });
 
                 // Limpiar campos required de variaciones eliminadas antes del submit
@@ -701,6 +726,14 @@ class CNA_Post_Type
         } else {
             // Si no hay variaciones en POST, eliminar el meta
             delete_post_meta($post_id, '_cna_product_variations');
+        }
+
+        // Guardar cantidad mínima de entregas
+        if (isset($_POST['cna_min_qty'])) {
+            $min_qty = intval($_POST['cna_min_qty']);
+            if ($min_qty >= 1 && $min_qty <= 100) {
+                update_post_meta($post_id, '_cna_min_qty', $min_qty);
+            }
         }
 
         // Guardar Día de Entrega

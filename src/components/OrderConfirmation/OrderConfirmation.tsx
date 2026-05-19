@@ -64,62 +64,86 @@ const OrderConfirmation: React.FC<OrderConfirmationProps> = () => {
       return;
     }
 
+    const id = parseInt(subscriptionId, 10);
+
     if (statusParam === 'processing') {
-      // Cargar los detalles y mostrar estado de procesamiento (no error)
-      loadSubscriptionDetails(parseInt(subscriptionId, 10));
-      return;
+      loadSubscriptionDetails(id);
+
+      const pollInterval = window.setInterval(async () => {
+        try {
+          const details = await getSubscriptionDetails(id);
+          setSubscription(details);
+          setError(null);
+          if (details.status === 'active') {
+            window.clearInterval(pollInterval);
+            const url = new URL(window.location.href);
+            url.searchParams.delete('status');
+            window.history.replaceState({}, '', url.toString());
+          }
+        } catch {
+          // Mantener pantalla de procesamiento mientras el webhook confirma el pago
+        }
+      }, 3000);
+
+      return () => window.clearInterval(pollInterval);
     }
 
-    loadSubscriptionDetails(parseInt(subscriptionId, 10));
+    loadSubscriptionDetails(id);
   }, []);
 
-  const loadSubscriptionDetails = async (subscriptionId: number) => {
+  const buildProcessingPlaceholder = (subscriptionId: number): SubscriptionDetails => ({
+    id: subscriptionId,
+    product_name: 'Suscripción',
+    status: 'pending',
+    total_with_fee: 0,
+    unit_price: 0,
+    product_subtotal: 0,
+    shipping_total: 0,
+    annual_fee: 0,
+    fee_amount: 0,
+    variant_details: {
+      size: '',
+      qty: 0,
+      frequency: 0,
+      advance_percent: 0,
+    },
+    shipping_address: null,
+    created_at: new Date().toISOString(),
+  });
+
+  const loadSubscriptionDetails = async (
+    subscriptionId: number,
+    options: { silent?: boolean } = {}
+  ) => {
     try {
-      setLoading(true);
+      if (!options.silent) {
+        setLoading(true);
+      }
       setError(null);
       const details = await getSubscriptionDetails(subscriptionId);
       setSubscription(details);
-      
-      // Si el status es 'processing', no mostrar error, solo mostrar el estado de procesamiento
-      const urlParams = new URLSearchParams(window.location.search);
-      const statusParam = urlParams.get('status');
-      if (statusParam === 'processing') {
-        // No establecer error, mostrar pantalla de gracias con estado de procesamiento
-        setError(null);
+
+      if (details.status === 'active') {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('status');
+        window.history.replaceState({}, '', url.toString());
       }
     } catch (err: any) {
       console.error('Error loading subscription details:', err);
-      // Si hay un error pero el status es processing, mostrar mensaje de procesamiento en lugar de error
       const urlParams = new URLSearchParams(window.location.search);
       const statusParam = urlParams.get('status');
-      if (statusParam === 'processing') {
-        // No mostrar error, intentar mostrar pantalla de gracias con estado de procesamiento
+      const isProcessingReturn = statusParam === 'processing';
+
+      if (isProcessingReturn) {
         setError(null);
-        // Crear un objeto de suscripción mínimo para mostrar la pantalla de gracias
-        setSubscription({
-          id: parseInt(urlParams.get('subscription_id') || '0', 10),
-          product_name: 'Suscripción',
-          status: 'pending',
-          total_with_fee: 0,
-          unit_price: 0,
-          product_subtotal: 0,
-          shipping_total: 0,
-          annual_fee: 0,
-          fee_amount: 0,
-          variant_details: {
-            size: '',
-            qty: 0,
-            frequency: 0,
-            advance_percent: 0,
-          },
-          shipping_address: null,
-          created_at: new Date().toISOString(),
-        });
+        setSubscription((current) => current ?? buildProcessingPlaceholder(subscriptionId));
       } else {
         setError(err.message || 'Error al cargar los detalles de la suscripción.');
       }
     } finally {
-      setLoading(false);
+      if (!options.silent) {
+        setLoading(false);
+      }
     }
   };
 

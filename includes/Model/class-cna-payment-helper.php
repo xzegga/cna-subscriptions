@@ -90,6 +90,7 @@ class CNA_Payment_Helper {
                 'wsk' => '',
                 'sandbox' => true,
                 'fee' => '0.06',
+                'fee_fixed' => '0',
             );
         }
 
@@ -98,27 +99,94 @@ class CNA_Payment_Helper {
             'wsk' => $gateway->settings['wsk'] ?? '',
             'sandbox' => $gateway->settings['sandbox'] ?? true,
             'fee' => $gateway->settings['fee'] ?? '0.06',
+            'fee_fixed' => $gateway->settings['fee_fixed'] ?? '0',
         );
     }
 
     /**
-     * Obtiene el fee de la pasarela activa
+     * Obtiene el fee porcentual de la pasarela activa
      *
-     * @return float Fee como decimal (ej: 0.06 para 6%)
+     * @return float Fee como decimal (ej: 0.05 para 5%)
      */
     public static function get_gateway_fee() {
         $gateway = self::get_active_gateway();
-        
+
         if (!$gateway) {
-            return 0.06; // Valor por defecto
+            return 0.06;
         }
 
-        // Para Pagadito
         if ($gateway->slug === 'pagadito') {
             return floatval($gateway->settings['fee'] ?? '0.06');
         }
 
-        // Para otros gateways, retornar 0.06 por defecto
         return 0.06;
+    }
+
+    /**
+     * Obtiene el fee fijo de la pasarela activa (por transacción)
+     *
+     * @return float Monto fijo en la moneda de la tienda (ej: 0.25)
+     */
+    public static function get_gateway_fee_fixed() {
+        $gateway = self::get_active_gateway();
+
+        if (!$gateway) {
+            return 0.0;
+        }
+
+        if ($gateway->slug === 'pagadito') {
+            return floatval($gateway->settings['fee_fixed'] ?? '0');
+        }
+
+        return 0.0;
+    }
+
+    /**
+     * Calcula el total a cobrar para recibir exactamente el monto neto tras comisiones.
+     * Pagadito retiene: (total * fee_percent) + fee_fixed
+     * Comercio recibe: total - (total * fee_percent) - fee_fixed = net_amount
+     *
+     * @param float $net_amount Monto que debe recibir el comercio
+     * @return array{fee_percent: float, fee_fixed: float, net_amount: float, fee_amount: float, total_with_fee: float}|WP_Error
+     */
+    public static function calculate_gateway_totals($net_amount) {
+        $fee_percent = self::get_gateway_fee();
+        $fee_fixed = self::get_gateway_fee_fixed();
+        $net_amount = floatval($net_amount);
+
+        if ($fee_percent >= 1 || $fee_percent < 0) {
+            return new WP_Error(
+                'invalid_gateway_fee',
+                __('Configuración de fee de pasarela inválida', 'cna-subscriptions')
+            );
+        }
+
+        if ($fee_fixed < 0) {
+            return new WP_Error(
+                'invalid_gateway_fee_fixed',
+                __('Configuración de fee fijo de pasarela inválida', 'cna-subscriptions')
+            );
+        }
+
+        if ($net_amount <= 0) {
+            return array(
+                'fee_percent' => $fee_percent,
+                'fee_fixed' => $fee_fixed,
+                'net_amount' => 0.0,
+                'fee_amount' => 0.0,
+                'total_with_fee' => 0.0,
+            );
+        }
+
+        $total_with_fee = round(($net_amount + $fee_fixed) / (1 - $fee_percent), 2);
+        $fee_amount = round($total_with_fee - $net_amount, 2);
+
+        return array(
+            'fee_percent' => $fee_percent,
+            'fee_fixed' => $fee_fixed,
+            'net_amount' => $net_amount,
+            'fee_amount' => $fee_amount,
+            'total_with_fee' => $total_with_fee,
+        );
     }
 }

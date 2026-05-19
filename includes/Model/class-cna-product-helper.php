@@ -100,4 +100,15 @@ class CNA_Product_Helper {
     public static function get_annual_fee($product_id) {
         return floatval(get_post_meta($product_id, '_cna_annual_fee', true));
     }
+
+    /**
+     * Obtiene la cantidad mínima de entregas de un producto
+     *
+     * @param int $product_id ID del producto
+     * @return int
+     */
+    public static function get_min_qty($product_id) {
+        $min = intval(get_post_meta($product_id, '_cna_min_qty', true));
+        return $min > 0 ? $min : 4;
+    }
 }

@@ -27,11 +27,18 @@
   margin-bottom: 1.5rem;
 }
 
+/* Single product page: title shown in configurator */
+.single-cna_product .entry-header {
+  display: none;
+}
+
 /* Single product page: image + configurator layout */
 .cna-product-layout {
   display: flex;
   flex-direction: column;
   gap: 2rem;
+  width: 100%;
+  max-width: 100%;
   margin: 2rem 0;
 }
 
@@ -48,11 +55,18 @@
 
 .cna-product-layout__config {
   width: 100%;
+  min-width: 0;
+}
+
+.cna-product-layout__config #cna-product-app {
+  width: 100%;
 }
 
 .cna-product-layout__config .cna-product-configurator {
-  max-width: none;
+  width: 100%;
+  max-width: 100%;
   margin: 0;
+  padding: 0;
 }
 
 @media (min-width: 768px) {

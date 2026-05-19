@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   getShippingOptions,
   getPickupStores,
@@ -19,6 +19,59 @@ import type {
   UserAddress,
 } from '../../services/api';
 import './CheckoutWizard.css';
+
+const DEFAULT_MIN_QTY = 4;
+
+function getConfigQty(cfg: Record<string, unknown> | null): number {
+  if (!cfg) return DEFAULT_MIN_QTY;
+  const nested = cfg.config as { qty?: number } | undefined;
+  return nested?.qty ?? (cfg.qty as number | undefined) ?? (cfg.minQty as number | undefined) ?? DEFAULT_MIN_QTY;
+}
+
+function getAdvancePercent(cfg: Record<string, unknown> | null): number {
+  if (!cfg) return 100;
+  const nested = cfg.config as { advance_percent?: number } | undefined;
+  const raw = nested?.advance_percent ?? (cfg.advance_percent as number | undefined);
+  return Number(raw) === 50 ? 50 : 100;
+}
+
+function getAnnualFee(cfg: Record<string, unknown> | null): number {
+  if (!cfg) return 0;
+  return Number(cfg.annualFee) || 0;
+}
+
+function computeCheckoutTotals(
+  cfg: Record<string, unknown>,
+  shippingCost: number,
+  gatewayFeePercent: number,
+  gatewayFeeFixedAmount: number
+) {
+  const qty = getConfigQty(cfg);
+  const unitPrice = (cfg.variation as { price?: number } | undefined)?.price || 0;
+  const productSubtotal = unitPrice * qty;
+  const advancePercent = getAdvancePercent(cfg);
+  const advanceAmount = productSubtotal * (advancePercent / 100);
+  const annualFee = getAnnualFee(cfg);
+  const netAmount = advanceAmount + shippingCost + annualFee;
+  const totalWithFee =
+    gatewayFeePercent >= 1
+      ? netAmount
+      : Math.round(((netAmount + gatewayFeeFixedAmount) / (1 - gatewayFeePercent)) * 100) / 100;
+  const feeAmount = Math.round((totalWithFee - netAmount) * 100) / 100;
+
+  return {
+    unit_price: unitPrice,
+    qty,
+    product_subtotal: productSubtotal,
+    advance_percent: advancePercent,
+    advance_amount: advanceAmount,
+    shipping_total: shippingCost,
+    annual_fee: annualFee,
+    net_amount: netAmount,
+    fee_amount: feeAmount,
+    total_with_fee: totalWithFee,
+  };
+}
 
 interface LocationData {
   departments: string[];
@@ -92,6 +145,8 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
   const [acceptAutoRenew, setAcceptAutoRenew] = useState(true);
   const [orderTotals, setOrderTotals] = useState<any>(null);
   const [gatewayFee, setGatewayFee] = useState<number>(0.06); // Valor por defecto 6%
+  const [gatewayFeeFixed, setGatewayFeeFixed] = useState<number>(0);
+  const hasSkippedInitialPersonalStep = useRef(false);
 
   // Cargar configuración desde SessionStorage
   useEffect(() => {
@@ -137,7 +192,7 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
       calculateTotals();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, selectedShippingOption, shipping.type, shipping.store_id, gatewayFee]);
+  }, [config, selectedShippingOption, shipping.type, shipping.store_id, gatewayFee, gatewayFeeFixed]);
 
   const loadUserData = async () => {
     try {
@@ -173,6 +228,7 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
     try {
       const response = await getGatewayFee();
       setGatewayFee(response.fee);
+      setGatewayFeeFixed(response.fee_fixed ?? 0);
     } catch (err: any) {
       console.error('Error loading gateway fee:', err);
       // Mantener valor por defecto
@@ -363,48 +419,24 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
     }
   };
 
-  const calculateTotals = async () => {
+  const calculateTotals = () => {
     if (!config) return;
 
-    // Si no hay método de entrega seleccionado, no calcular
-    if (!shipping.type) return;
-
-    // Si es domicilio, necesitamos las opciones de envío cargadas
-    if (shipping.type === 'home' && !selectedShippingOption) return;
-
-    // Si es pickup, no hay costo de envío
-    if (shipping.type === 'pickup' && !shipping.store_id) return;
-
     try {
-      // Calcular totales basado en la configuración
-      const qty = config.config?.qty || config.qty || 4;
-      const unitPrice = config.variation?.price || 0;
-      const productSubtotal = unitPrice * qty;
-
+      const qty = getConfigQty(config);
       let shippingCost = 0;
-      if (shipping.type === 'home' && selectedShippingOption && selectedShippingOption.type === 'home') {
-        const unitCost = selectedShippingOption.cost || 0;
-        shippingCost = unitCost * qty;
+      if (
+        shipping.type === 'home' &&
+        selectedShippingOption &&
+        selectedShippingOption.type === 'home'
+      ) {
+        shippingCost = (selectedShippingOption.cost || 0) * qty;
       }
-      // Si es pickup, shippingCost ya es 0
 
-      const annualFee = config.annualFee || 0;
-      const netAmount = productSubtotal + shippingCost + annualFee;
-
-      // Calcular fee de tarjeta usando reverse fee calculation
-      // Si el net_amount es lo que queremos recibir, el total_with_fee = net_amount / (1 - fee)
-      const totalWithFee = netAmount / (1 - gatewayFee);
-      const feeAmount = totalWithFee - netAmount;
-
-      setOrderTotals({
-        product_subtotal: productSubtotal,
-        shipping_total: shippingCost,
-        annual_fee: annualFee,
-        net_amount: netAmount,
-        fee_amount: feeAmount,
-        total_with_fee: totalWithFee,
-      });
-    } catch (err: any) {
+      setOrderTotals(
+        computeCheckoutTotals(config, shippingCost, gatewayFee, gatewayFeeFixed)
+      );
+    } catch (err: unknown) {
       console.error('Error calculating totals:', err);
     }
   };
@@ -500,32 +532,53 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
     );
   }, [userData]);
 
+  // Si los datos personales ya vienen completos, abrir directamente en método de entrega
+  useEffect(() => {
+    if (!userDataLoaded || hasSkippedInitialPersonalStep.current) {
+      return;
+    }
+    if (isPersonalStepValid) {
+      hasSkippedInitialPersonalStep.current = true;
+      setActiveStep('delivery_method');
+    }
+  }, [userDataLoaded, isPersonalStepValid]);
+
   // Validación: Paso 2 - Método de entrega
   const isDeliveryMethodValid = useMemo(() => {
     return shipping.type === 'home' || shipping.type === 'pickup';
   }, [shipping.type]);
 
+  const hasCompleteShippingAddress = useMemo(() => {
+    return (
+      !!shipping.department &&
+      !!shipping.municipality &&
+      !!shipping.district &&
+      shipping.address.trim() !== ''
+    );
+  }, [shipping.department, shipping.municipality, shipping.district, shipping.address]);
+
   // Validación: Paso 3 - Direcciones de envío (si es domicilio)
   const isShippingStepValid = useMemo(() => {
-    if (shipping.type !== 'home') return true; // No aplica si no es domicilio
-    
-    // Si hay dirección seleccionada, es válida
+    if (shipping.type !== 'home') return true;
+
     if (selectedAddressId) {
       return true;
     }
-    
-    // Si está editando o agregando nueva, validar campos
-    if (editingAddressId !== null || showNewAddressForm) {
-      return (
-        !!shipping.department &&
-        !!shipping.municipality &&
-        !!shipping.district &&
-        shipping.address.trim() !== ''
-      );
+
+    // Dirección ingresada manualmente (sin direcciones guardadas, nueva o en edición)
+    if (editingAddressId !== null || showNewAddressForm || savedAddresses.length === 0) {
+      return hasCompleteShippingAddress;
     }
-    
+
     return false;
-  }, [shipping, selectedAddressId, editingAddressId, showNewAddressForm]);
+  }, [
+    shipping.type,
+    selectedAddressId,
+    editingAddressId,
+    showNewAddressForm,
+    savedAddresses.length,
+    hasCompleteShippingAddress,
+  ]);
 
   // Validación: Paso 3 - Selección de tienda (si es pickup)
   const isStoreSelectionValid = useMemo(() => {
@@ -550,8 +603,7 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
       isPersonalStepValid &&
       isDeliveryMethodValid &&
       (shipping.type === 'home' ? isShippingStepValid : isStoreSelectionValid) &&
-      isBillingStepValid &&
-      acceptAutoRenew
+      isBillingStepValid
     );
   }, [
     isPersonalStepValid,
@@ -559,7 +611,6 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
     isShippingStepValid,
     isStoreSelectionValid,
     isBillingStepValid,
-    acceptAutoRenew,
     shipping.type,
   ]);
 
@@ -663,7 +714,7 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
         user_id: userId,
         variant: {
           size: config.variation?.name?.toLowerCase() || '',
-          qty: config.config?.qty || config.qty || 4,
+          qty: getConfigQty(config),
           frequency: config.config?.frequency || config.frequency || 1,
           advance_percent: config.config?.advance_percent || config.advance_percent || 100,
         },
@@ -823,11 +874,18 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
               <h3 className="cna-product-title">
                 {config.productName || 'Producto'} - {config.variation?.name || ''} {config.variation?.weight || ''}
               </h3>
-              <div className="cna-product-price">${(config.variation?.price || 0).toFixed(2)}</div>
+              <div className="cna-product-price">
+                ${(
+                  orderTotals?.advance_amount ??
+                  (config.variation?.price || 0) *
+                    getConfigQty(config) *
+                    (getAdvancePercent(config) / 100)
+                ).toFixed(2)}
+              </div>
               <div className="cna-product-details">
                 <div className="cna-product-detail-row">
                   <span className="cna-detail-label">Cantidad:</span>
-                  <span className="cna-detail-value">{config.config?.qty || config.qty || 4}</span>
+                  <span className="cna-detail-value">{getConfigQty(config)}</span>
                 </div>
                 <div className="cna-product-detail-row">
                   <span className="cna-detail-label">Recibir cada:</span>
@@ -1196,36 +1254,34 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
                         )}
 
                         {/* Botones de guardar/cancelar al editar o agregar */}
-                        {(editingAddressId !== null || showNewAddressForm) && (
+                        {(editingAddressId !== null || showNewAddressForm || savedAddresses.length === 0) && (
                           <div className="cna-form-group cna-address-form-actions">
                             <button
                               type="button"
                               className="cna-button cna-button-primary"
                               onClick={handleSaveAddress}
-                              disabled={loading}
+                              disabled={loading || !hasCompleteShippingAddress}
                             >
                               {loading ? 'Guardando...' : 'Guardar dirección'}
                             </button>
-                            <button
-                              type="button"
-                              className="cna-button cna-button-secondary"
-                              onClick={() => {
-                                setEditingAddressId(null);
-                                setShowNewAddressForm(false);
-                                if (savedAddresses.length > 0) {
+                            {savedAddresses.length > 0 && (
+                              <button
+                                type="button"
+                                className="cna-button cna-button-secondary"
+                                onClick={() => {
+                                  setEditingAddressId(null);
+                                  setShowNewAddressForm(false);
                                   const defaultAddress = savedAddresses.find(addr => addr.is_default === 1);
                                   if (defaultAddress) {
                                     handleAddressSelect(defaultAddress.id);
                                   } else {
                                     handleAddressSelect(savedAddresses[0].id);
                                   }
-                                } else {
-                                  handleAddressSelect(null);
-                                }
-                              }}
-                            >
-                              Cancelar
-                            </button>
+                                }}
+                              >
+                                Cancelar
+                              </button>
+                            )}
                           </div>
                         )}
                       </>
@@ -1471,10 +1527,19 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
 
             <div className="cna-summary-section">
               <div className="cna-summary-row">
-                <span>Producto ({config.config?.qty || 4} unidades)</span>
                 <span>
-                  ${orderTotals?.product_subtotal?.toFixed(2) || 
-                    ((config.variation?.price || 0) * (config.config?.qty || 4)).toFixed(2)}
+                  {getAdvancePercent(config) < 100
+                    ? `Anticipo (${getAdvancePercent(config)}%)`
+                    : `Producto (${getConfigQty(config)} unidades)`}
+                </span>
+                <span>
+                  $
+                  {(
+                    orderTotals?.advance_amount ??
+                    (config.variation?.price || 0) *
+                      getConfigQty(config) *
+                      (getAdvancePercent(config) / 100)
+                  ).toFixed(2)}
                 </span>
               </div>
             </div>
@@ -1490,11 +1555,13 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
               </div>
             </div>
 
-            {orderTotals?.annual_fee > 0 && (
+            {(orderTotals?.annual_fee ?? getAnnualFee(config)) > 0 && (
               <div className="cna-summary-section">
                 <div className="cna-summary-row">
                   <span>Fee de Suscripción</span>
-                  <span>${orderTotals.annual_fee.toFixed(2)}</span>
+                  <span>
+                    ${(orderTotals?.annual_fee ?? getAnnualFee(config)).toFixed(2)}
+                  </span>
                 </div>
               </div>
             )}
@@ -1503,10 +1570,12 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
               <div className="cna-summary-row">
                 <span>Subtotal</span>
                 <span>
-                  ${orderTotals?.net_amount?.toFixed(2) || 
-                    ((config.variation?.price || 0) * (config.config?.qty || 4) + 
-                     (orderTotals?.shipping_total || 0) + 
-                     (orderTotals?.annual_fee || 0)).toFixed(2)}
+                  $
+                  {(
+                    orderTotals?.net_amount ??
+                    computeCheckoutTotals(config, orderTotals?.shipping_total ?? 0, gatewayFee, gatewayFeeFixed)
+                      .net_amount
+                  ).toFixed(2)}
                 </span>
               </div>
             </div>
@@ -1515,7 +1584,10 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
             {orderTotals && orderTotals.fee_amount > 0 && (
               <div className="cna-summary-section">
                 <div className="cna-summary-row cna-fee-row">
-                  <span>Fee de Tarjeta ({(gatewayFee * 100).toFixed(1)}%)</span>
+                  <span>
+                    Fee de Tarjeta ({(gatewayFee * 100).toFixed(1)}%
+                    {gatewayFeeFixed > 0 ? ` + $${gatewayFeeFixed.toFixed(2)}` : ''})
+                  </span>
                   <span>${orderTotals.fee_amount.toFixed(2)}</span>
                 </div>
               </div>
@@ -1525,11 +1597,12 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
               <div className="cna-summary-row">
                 <strong>Total a Pagar</strong>
                 <strong>
-                  ${orderTotals?.total_with_fee?.toFixed(2) || 
-                    orderTotals?.net_amount?.toFixed(2) || 
-                    ((config.variation?.price || 0) * (config.config?.qty || 4) + 
-                     (orderTotals?.shipping_total || 0) + 
-                     (orderTotals?.annual_fee || 0)).toFixed(2)}
+                  $
+                  {(
+                    orderTotals?.total_with_fee ??
+                    computeCheckoutTotals(config, orderTotals?.shipping_total ?? 0, gatewayFee, gatewayFeeFixed)
+                      .total_with_fee
+                  ).toFixed(2)}
                 </strong>
             </div>
           </div>
@@ -1542,9 +1615,8 @@ const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ userId }) => {
                   type="checkbox"
                   checked={acceptAutoRenew}
                   onChange={(e) => setAcceptAutoRenew(e.target.checked)}
-                  required
                 />
-                <span>Renovar automática al finalizar el ciclo de entregas. *</span>
+                <span>Renovar automática al finalizar el ciclo de entregas.</span>
               </label>
             </div>
           </div>

@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
 class CNA_Migrator
 {
 
-    const DB_VERSION = '1.0.3';
+    const DB_VERSION = '1.0.4';
     const VERSION_OPTION = 'cna_subscriptions_db_version';
 
     /**
@@ -39,6 +39,10 @@ class CNA_Migrator
 
         if (version_compare($current_version, '1.0.3', '<')) {
             self::migration_1_0_3();
+        }
+
+        if (version_compare($current_version, '1.0.4', '<')) {
+            self::migration_1_0_4();
         }
 
         // Actualizar versión
@@ -125,6 +129,22 @@ class CNA_Migrator
         if (!in_array('pagadito_ern', $columns)) {
             $wpdb->query("ALTER TABLE {$table_name} ADD COLUMN pagadito_ern varchar(50) DEFAULT NULL");
             $wpdb->query("ALTER TABLE {$table_name} ADD INDEX pagadito_ern (pagadito_ern)");
+        }
+    }
+
+    /**
+     * Migración 1.0.4: JSON de transacción de pago (multi-pasarela)
+     */
+    private static function migration_1_0_4()
+    {
+        global $wpdb;
+        $table_prefix = $wpdb->prefix;
+        $table_name = $table_prefix . 'cna_subscriptions';
+
+        $columns = $wpdb->get_col("SHOW COLUMNS FROM {$table_name}");
+
+        if (!in_array('payment_transaction_json', $columns)) {
+            $wpdb->query("ALTER TABLE {$table_name} ADD COLUMN payment_transaction_json longtext DEFAULT NULL");
         }
     }
 

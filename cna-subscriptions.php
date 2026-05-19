@@ -31,21 +31,26 @@ spl_autoload_register(function ($class) {
     // CNA_REST_Controller -> class-cna-rest-controller.php
     $class_name = str_replace('CNA_', '', $class);
     $class_name = str_replace('_', '-', strtolower($class_name));
-    $file_name = 'class-' . $class_name . '.php';
+    $file_names = array(
+        'class-cna-' . $class_name . '.php',
+        'class-' . $class_name . '.php',
+    );
 
-    // Buscar en las carpetas principales
     $directories = array(
         CNA_SUBSCRIPTIONS_PLUGIN_DIR . 'includes/Core/',
         CNA_SUBSCRIPTIONS_PLUGIN_DIR . 'includes/Admin/',
         CNA_SUBSCRIPTIONS_PLUGIN_DIR . 'includes/API/',
         CNA_SUBSCRIPTIONS_PLUGIN_DIR . 'includes/Model/',
+        CNA_SUBSCRIPTIONS_PLUGIN_DIR . 'includes/Mailer/',
     );
 
     foreach ($directories as $directory) {
-        $file_path = $directory . $file_name;
-        if (file_exists($file_path)) {
-            require_once $file_path;
-            return;
+        foreach ($file_names as $file_name) {
+            $file_path = $directory . $file_name;
+            if (file_exists($file_path)) {
+                require_once $file_path;
+                return;
+            }
         }
     }
 }, true, true); // true, true para agregar al inicio de la cola y lanzar excepciones
@@ -70,6 +75,7 @@ function cna_subscriptions_load_classes()
         'CNA_Post_Type' => 'includes/Admin/class-cna-post-type.php',
         'CNA_Settings' => 'includes/Admin/class-cna-settings.php',
         'CNA_Subscriptions_Admin' => 'includes/Admin/class-cna-subscriptions-admin.php',
+        'CNA_Admin_Assets' => 'includes/Admin/class-cna-admin-assets.php',
         'CNA_Categories' => 'includes/Admin/class-cna-categories.php',
         'CNA_Mailer' => 'includes/Mailer/class-cna-mailer.php',
         'CNA_REST_Controller' => 'includes/API/class-cna-rest.php',
@@ -79,6 +85,7 @@ function cna_subscriptions_load_classes()
         'CNA_Pagadito_Client' => 'includes/API/class-cna-pagadito-client.php',
         'CNA_Product_Helper' => 'includes/Model/class-cna-product-helper.php',
         'CNA_Payment_Helper' => 'includes/Model/class-cna-payment-helper.php',
+        'CNA_Payment_Transaction' => 'includes/Model/class-cna-payment-transaction.php',
         'CNA_Audit_Logger' => 'includes/Model/class-cna-audit-logger.php',
         'CNA_Token_Encryption' => 'includes/Model/class-cna-token-encryption.php',
     );
@@ -117,6 +124,11 @@ function cna_subscriptions_init()
     if (is_admin() && class_exists('CNA_Settings')) {
         $settings = new CNA_Settings();
         $settings->init();
+    }
+
+    if (is_admin() && class_exists('CNA_Admin_Assets')) {
+        $admin_assets = new CNA_Admin_Assets();
+        $admin_assets->init();
     }
 
     if (is_admin() && class_exists('CNA_Subscriptions_Admin')) {
@@ -164,7 +176,9 @@ function cna_my_account_shortcode($atts)
         return '<p>' . __('Debes estar autenticado para ver tus suscripciones.', 'cna-subscriptions') . '</p>';
     }
 
-    return '<div id="cna-my-account"></div><span id="cna-user-id" style="display:none;">' . esc_html($user_id) . '</span>';
+    $initial_subscription_id = isset($_GET['subscription_id']) ? absint($_GET['subscription_id']) : 0;
+
+    return '<div id="cna-my-account" data-initial-subscription-id="' . esc_attr($initial_subscription_id) . '"></div><span id="cna-user-id" style="display:none;">' . esc_html($user_id) . '</span>';
 }
 add_shortcode('cna_my_account', 'cna_my_account_shortcode');
 
@@ -194,15 +208,14 @@ function cna_login_shortcode($atts)
         return '';
     }
 
-    // Si ya está autenticado, redirigir solo si no es AJAX
-    if (is_user_logged_in() && !wp_doing_ajax()) {
-        $redirect_to = isset($_GET['redirect_to']) ? esc_url_raw($_GET['redirect_to']) : home_url();
-        // Solo redirigir si estamos en el frontend, no durante guardado de posts
-        if (!is_admin() && !wp_doing_ajax()) {
-            wp_safe_redirect($redirect_to);
+    // Si ya está autenticado: solo redirigir cuando hay redirect_to explícito (p. ej. checkout).
+    // Sin redirect_to, no redirigir: permite que [cna_my_account] en la misma página siga renderizando.
+    if (is_user_logged_in() && !wp_doing_ajax() && !is_admin()) {
+        if (!empty($_GET['redirect_to'])) {
+            wp_safe_redirect(esc_url_raw(wp_unslash($_GET['redirect_to'])));
             exit;
         }
-        return '<p>' . __('Ya estás autenticado.', 'cna-subscriptions') . '</p>';
+        return '';
     }
 
     $atts = shortcode_atts(array(

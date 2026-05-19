@@ -94,6 +94,7 @@ export interface Subscription {
   product_name?: string;
   status: string;
   is_auto_renew: number | string;
+  has_payment_token?: boolean | number | string;
   next_renewal_date: string;
   shipping_address_json: string;
   variant_details: string;
@@ -102,12 +103,28 @@ export interface Subscription {
   updated_at: string;
 }
 
+export type SubscriptionActionType =
+  | 'pause'
+  | 'activate'
+  | 'cancel'
+  | 'enable_auto_renew'
+  | 'disable_auto_renew';
+
+export interface SubscriptionActionResponse {
+  success: boolean;
+  message: string;
+  status?: string;
+  is_auto_renew?: number;
+  subscription?: Subscription;
+}
+
 export interface Delivery {
   id: number;
   subscription_id: number;
   scheduled_date: string;
   payment_status: string;
-  amount_to_collect: number;
+  /** API puede devolver string (decimal MySQL serializado en JSON). */
+  amount_to_collect: number | string;
   delivery_status: string;
   delivered_at?: string;
   notes?: string;
@@ -223,21 +240,34 @@ export async function getSubscriptionDeliveries(subscriptionId: number): Promise
  * Activa o desactiva la auto-renovación de una suscripción
  */
 export async function toggleRenewal(subscriptionId: number, enabled: boolean): Promise<{ success: boolean }> {
-  const response = await fetch(`${API_BASE}/subscriptions/${subscriptionId}/toggle-renew`, {
+  return performSubscriptionAction(
+    subscriptionId,
+    enabled ? 'enable_auto_renew' : 'disable_auto_renew'
+  );
+}
+
+/**
+ * Ejecuta una acción sobre la suscripción (pausar, reactivar, auto-renovación, etc.)
+ */
+export async function performSubscriptionAction(
+  subscriptionId: number,
+  action: SubscriptionActionType
+): Promise<SubscriptionActionResponse> {
+  const response = await fetch(`${API_BASE}/subscriptions/${subscriptionId}/action`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-WP-Nonce': (window as any).wpApiSettings?.nonce || '',
     },
-    body: JSON.stringify({ enabled }),
+    body: JSON.stringify({ action }),
   });
 
+  const data = await response.json();
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Error al actualizar auto-renovación');
+    throw new Error(data.message || 'Error al realizar la acción');
   }
 
-  return response.json();
+  return data;
 }
 
 /**
@@ -279,7 +309,7 @@ export async function getCurrentUserData(): Promise<UserMetadata> {
 /**
  * Obtiene el fee de la pasarela activa
  */
-export async function getGatewayFee(): Promise<{ fee: number; fee_percent: number }> {
+export async function getGatewayFee(): Promise<{ fee: number; fee_percent: number; fee_fixed: number }> {
   const response = await fetch(`${API_BASE}/gateway-fee`);
   
   if (!response.ok) {

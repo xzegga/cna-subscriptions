@@ -399,7 +399,7 @@ class CNA_Subscriptions_Admin {
                 'id' => $item->id,
                 'product' => $item->product_name ?: __('Producto eliminado', 'cna-subscriptions'),
                 'cliente' => $item->client_name ?: __('Cliente eliminado', 'cna-subscriptions'),
-                'creada' => $this->format_date($item->created_at),
+                'creada' => $this->format_datetime($item->created_at),
                 'inicia' => $this->format_date($item->first_delivery),
                 'tipo' => $this->get_shipping_type_label($shipping_type_key),
                 'autorenovable' => $item->is_auto_renew ? __('Sí', 'cna-subscriptions') : __('No', 'cna-subscriptions'),
@@ -458,6 +458,20 @@ class CNA_Subscriptions_Admin {
         }
 
         return date_i18n('d/m/Y', strtotime($value));
+    }
+
+    /**
+     * Formatea fecha y hora (p. ej. columna Creada).
+     *
+     * @param string|null $value
+     * @return string
+     */
+    private function format_datetime($value) {
+        if (empty($value)) {
+            return '—';
+        }
+
+        return date_i18n('d/m/Y H:i', strtotime($value));
     }
 
     /**
@@ -595,6 +609,175 @@ class CNA_Subscriptions_Admin {
     }
 
     /**
+     * Información del producto (catálogo, sin cobro con tarjeta).
+     */
+    private function render_subscription_product_info_section($subscription, $variant_details, $qty, $unit_price, $product_subtotal, $advance_percent, $has_partial_advance, $remaining_per_delivery) {
+        $pending_product_total = max(0, $product_subtotal - ($product_subtotal * ($advance_percent / 100)));
+
+        ob_start();
+        ?>
+        <div class="cna-detail-block cna-detail-block--info">
+            <h3 class="cna-detail-block__title"><?php _e('Información del producto', 'cna-subscriptions'); ?></h3>
+            <p class="cna-detail-block__hint"><?php _e('Datos de la suscripción y precios de catálogo. No incluye el cobro con tarjeta.', 'cna-subscriptions'); ?></p>
+            <dl class="cna-info-dl">
+                <dt><?php _e('Producto', 'cna-subscriptions'); ?></dt>
+                <dd><?php echo esc_html($subscription->product_name); ?></dd>
+                <dt><?php _e('Tamaño', 'cna-subscriptions'); ?></dt>
+                <dd><?php echo esc_html($variant_details['size'] ?? '—'); ?></dd>
+                <dt><?php _e('Frecuencia', 'cna-subscriptions'); ?></dt>
+                <dd><?php echo esc_html(($variant_details['frequency'] ?? '—') . ' ' . __('semanas', 'cna-subscriptions')); ?></dd>
+                <dt><?php _e('Cantidad de canastas', 'cna-subscriptions'); ?></dt>
+                <dd><?php echo esc_html($qty); ?></dd>
+                <dt><?php _e('Precio unitario (catálogo)', 'cna-subscriptions'); ?></dt>
+                <dd>$<?php echo number_format($unit_price, 2); ?></dd>
+                <dt><?php _e('Valor total del producto', 'cna-subscriptions'); ?></dt>
+                <dd><strong>$<?php echo number_format($product_subtotal, 2); ?></strong></dd>
+                <?php if ($has_partial_advance) : ?>
+                <dt><?php _e('Anticipo contratado', 'cna-subscriptions'); ?></dt>
+                <dd><?php echo esc_html(number_format($advance_percent, 0)); ?>%</dd>
+                <dt><?php _e('Pendiente del producto (no cobrado ahora)', 'cna-subscriptions'); ?></dt>
+                <dd>
+                    $<?php echo number_format($pending_product_total, 2); ?>
+                    <span class="cna-detail-block__muted">
+                        <?php
+                        printf(
+                            esc_html__('Se cobra $%s por canasta en cada entrega (%d entregas).', 'cna-subscriptions'),
+                            number_format($remaining_per_delivery, 2),
+                            intval($qty)
+                        );
+                        ?>
+                    </span>
+                </dd>
+                <?php endif; ?>
+            </dl>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
+     * Resumen del cobro inicial con pasarela.
+     */
+    private function render_subscription_charge_summary_section($advance_amount, $shipping_total, $annual_fee, $net_amount, $fee_amount, $total_with_fee, $advance_percent, $has_partial_advance) {
+        ob_start();
+        ?>
+        <div class="cna-detail-block cna-detail-block--charge">
+            <h3 class="cna-detail-block__title"><?php _e('Cobro inicial con tarjeta', 'cna-subscriptions'); ?></h3>
+            <p class="cna-detail-block__hint"><?php _e('Montos incluidos en el pago procesado por la pasarela al activar la suscripción.', 'cna-subscriptions'); ?></p>
+            <table class="cna-charge-table">
+                <tbody>
+                    <tr>
+                        <th scope="row">
+                            <?php
+                            if ($has_partial_advance) {
+                                printf(esc_html__('Anticipo del producto (%s%%)', 'cna-subscriptions'), esc_html(number_format($advance_percent, 0)));
+                            } else {
+                                esc_html_e('Producto (100% anticipo)', 'cna-subscriptions');
+                            }
+                            ?>
+                        </th>
+                        <td>$<?php echo number_format($advance_amount, 2); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php _e('Envío (100% anticipo)', 'cna-subscriptions'); ?></th>
+                        <td>$<?php echo number_format($shipping_total, 2); ?></td>
+                    </tr>
+                    <?php if ($annual_fee > 0) : ?>
+                    <tr>
+                        <th scope="row"><?php _e('Cuota anual', 'cna-subscriptions'); ?></th>
+                        <td>$<?php echo number_format($annual_fee, 2); ?></td>
+                    </tr>
+                    <?php endif; ?>
+                    <tr class="cna-charge-table__subtotal">
+                        <th scope="row"><?php _e('Neto a recibir (antes de fee pasarela)', 'cna-subscriptions'); ?></th>
+                        <td><strong>$<?php echo number_format($net_amount, 2); ?></strong></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php _e('Fee pasarela (cargado al cliente)', 'cna-subscriptions'); ?></th>
+                        <td>$<?php echo number_format($fee_amount, 2); ?></td>
+                    </tr>
+                    <tr class="cna-charge-table__total">
+                        <th scope="row"><?php _e('Total cobrado al cliente', 'cna-subscriptions'); ?></th>
+                        <td><strong>$<?php echo number_format($total_with_fee, 2); ?></strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
+     * Bloque de detalle de transacción Pagadito (debajo del desglose de cobro).
+     */
+    private function render_payment_transaction_section($payment_transaction, $subscription) {
+        $fields = $payment_transaction['fields'] ?? array();
+        $provider_label = $payment_transaction['provider_label'] ?? '';
+        $has_webhook_detail = !empty($fields);
+
+        if (empty($fields)) {
+            if (!empty($subscription->pagadito_ern)) {
+                $fields[] = array(
+                    'label' => __('Referencia de orden (ERN)', 'cna-subscriptions'),
+                    'value' => $subscription->pagadito_ern,
+                );
+            }
+            if (floatval($subscription->total_with_fee) > 0) {
+                $fields[] = array(
+                    'label' => __('Total cobrado', 'cna-subscriptions'),
+                    'value' => '$' . number_format(floatval($subscription->total_with_fee), 2),
+                );
+            }
+            if (!empty($subscription->created_at)) {
+                $fields[] = array(
+                    'label' => __('Fecha de registro', 'cna-subscriptions'),
+                    'value' => $this->format_datetime($subscription->created_at),
+                );
+            }
+            $provider_label = __('Pagadito', 'cna-subscriptions');
+        }
+
+        $show_section = floatval($subscription->total_with_fee) > 0
+            || !empty($subscription->pagadito_ern)
+            || $has_webhook_detail
+            || in_array($subscription->status, array('active', 'pending', 'payment_failed'), true);
+
+        if (!$show_section || empty($fields)) {
+            return '';
+        }
+
+        if ($provider_label === '') {
+            $provider_label = __('Pasarela de pago', 'cna-subscriptions');
+        }
+
+        ob_start();
+        ?>
+        <div class="cna-payment-transaction-section">
+            <div class="cna-payment-transaction-header">
+                <?php echo esc_html($provider_label); ?>
+            </div>
+            <h3 class="cna-payment-transaction-title"><?php _e('Detalle de transacción Pagadito', 'cna-subscriptions'); ?></h3>
+            <?php if (!$has_webhook_detail) : ?>
+                <p class="cna-payment-transaction-notice">
+                    <?php _e('Los datos completos del comprobante Pagadito (número de aprobación PG, hora exacta, etc.) aparecerán cuando el webhook confirme el pago. Abajo se muestra la información registrada en el sistema.', 'cna-subscriptions'); ?>
+                </p>
+            <?php endif; ?>
+            <table class="cna-payment-transaction-table">
+                <tbody>
+                    <?php foreach ($fields as $field) : ?>
+                        <tr>
+                            <th scope="row"><?php echo esc_html($field['label']); ?></th>
+                            <td><?php echo esc_html($field['value']); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
      * Construye la URL para ver detalles de una suscripción
      *
      * @param int $subscription_id
@@ -608,6 +791,204 @@ class CNA_Subscriptions_Admin {
             'subscription_id' => $subscription_id,
         );
         return esc_url(add_query_arg($args, admin_url('edit.php')));
+    }
+
+    /**
+     * Líneas de texto para dirección de facturación.
+     *
+     * @param array $billing_address
+     * @return array
+     */
+    private function format_billing_address_lines($billing_address) {
+        if (!is_array($billing_address)) {
+            return array();
+        }
+
+        $lines = array();
+        if (!empty($billing_address['address_1'])) {
+            $lines[] = $billing_address['address_1'];
+        }
+        $city_state = array_filter(array(
+            $billing_address['city'] ?? '',
+            $billing_address['state'] ?? '',
+        ));
+        if (!empty($city_state)) {
+            $lines[] = implode(', ', $city_state);
+        }
+        if (!empty($billing_address['country'])) {
+            $lines[] = $billing_address['country'];
+        }
+        if (!empty($billing_address['reference'])) {
+            $lines[] = __('Referencia:', 'cna-subscriptions') . ' ' . $billing_address['reference'];
+        }
+
+        return $lines;
+    }
+
+    /**
+     * HTML de factura solo para impresión (no visible en pantalla).
+     */
+    private function render_invoice_print_document(
+        $subscription,
+        $subscription_id,
+        $variant_details,
+        $shipping_address,
+        $billing_address,
+        $user_first_name,
+        $user_last_name,
+        $user_phone,
+        $qty,
+        $unit_price,
+        $product_subtotal,
+        $advance_percent,
+        $has_partial_advance,
+        $advance_amount,
+        $shipping_total,
+        $annual_fee,
+        $fee_amount,
+        $total_with_fee
+    ) {
+        $billing_lines = $this->format_billing_address_lines($billing_address);
+        $shipping_lines = array();
+
+        if (($shipping_address['type'] ?? '') === 'home') {
+            $shipping_lines = array_filter(array(
+                $shipping_address['address'] ?? '',
+                trim(implode(', ', array_filter(array(
+                    $shipping_address['district'] ?? '',
+                    $shipping_address['municipality'] ?? '',
+                    $shipping_address['department'] ?? '',
+                )))),
+            ));
+        }
+
+        $payment_status_label = in_array($subscription->status, array('active', 'completed'), true)
+            ? __('Pagada', 'cna-subscriptions')
+            : $this->get_status_label($subscription->status);
+
+        ob_start();
+        ?>
+        <div id="cna-invoice-print-document" class="cna-invoice-print">
+            <header class="cna-invoice-print__brand">
+                <h1 class="cna-invoice-print__title"><?php echo esc_html(get_bloginfo('name')); ?></h1>
+                <p class="cna-invoice-print__doc-type"><?php esc_html_e('Factura de compra', 'cna-subscriptions'); ?></p>
+            </header>
+
+            <section class="cna-invoice-print__meta">
+                <div class="cna-invoice-print__meta-col">
+                    <p><strong><?php esc_html_e('Número de orden:', 'cna-subscriptions'); ?></strong> <?php echo esc_html($subscription_id); ?></p>
+                    <p><strong><?php esc_html_e('Fecha:', 'cna-subscriptions'); ?></strong> <?php echo esc_html($this->format_datetime($subscription->created_at)); ?></p>
+                </div>
+                <div class="cna-invoice-print__meta-col cna-invoice-print__meta-col--right">
+                    <p><strong><?php esc_html_e('Estado del pago:', 'cna-subscriptions'); ?></strong> <?php echo esc_html($payment_status_label); ?></p>
+                    <?php if (!empty($subscription->pagadito_ern)) : ?>
+                        <p><strong><?php esc_html_e('Referencia:', 'cna-subscriptions'); ?></strong> <?php echo esc_html($subscription->pagadito_ern); ?></p>
+                    <?php endif; ?>
+                </div>
+            </section>
+
+            <section class="cna-invoice-print__section">
+                <h2 class="cna-invoice-print__section-title"><?php esc_html_e('Cliente', 'cna-subscriptions'); ?></h2>
+                <p class="cna-invoice-print__line"><strong><?php echo esc_html(trim($user_first_name . ' ' . $user_last_name)); ?></strong></p>
+                <p class="cna-invoice-print__line"><?php echo esc_html($subscription->user_email); ?></p>
+                <?php if ($user_phone) : ?>
+                    <p class="cna-invoice-print__line"><?php echo esc_html($user_phone); ?></p>
+                <?php endif; ?>
+
+                <?php if (!empty($billing_lines)) : ?>
+                    <h3 class="cna-invoice-print__subsection-title"><?php esc_html_e('Dirección de facturación', 'cna-subscriptions'); ?></h3>
+                    <?php foreach ($billing_lines as $line) : ?>
+                        <p class="cna-invoice-print__line"><?php echo esc_html($line); ?></p>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+
+                <?php if (!empty($shipping_lines)) : ?>
+                    <h3 class="cna-invoice-print__subsection-title"><?php esc_html_e('Dirección de entrega', 'cna-subscriptions'); ?></h3>
+                    <?php foreach ($shipping_lines as $line) : ?>
+                        <p class="cna-invoice-print__line"><?php echo esc_html($line); ?></p>
+                    <?php endforeach; ?>
+                <?php elseif (($shipping_address['type'] ?? '') === 'pickup') : ?>
+                    <h3 class="cna-invoice-print__subsection-title"><?php esc_html_e('Entrega', 'cna-subscriptions'); ?></h3>
+                    <p class="cna-invoice-print__line"><?php esc_html_e('Retiro en tienda', 'cna-subscriptions'); ?></p>
+                <?php endif; ?>
+            </section>
+
+            <section class="cna-invoice-print__section">
+                <h2 class="cna-invoice-print__section-title"><?php esc_html_e('Detalle del pedido', 'cna-subscriptions'); ?></h2>
+                <table class="cna-invoice-print__table">
+                    <thead>
+                        <tr>
+                            <th><?php esc_html_e('Descripción', 'cna-subscriptions'); ?></th>
+                            <th class="cna-invoice-print__num"><?php esc_html_e('Cant.', 'cna-subscriptions'); ?></th>
+                            <th class="cna-invoice-print__num"><?php esc_html_e('P. unit.', 'cna-subscriptions'); ?></th>
+                            <th class="cna-invoice-print__num"><?php esc_html_e('Importe', 'cna-subscriptions'); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>
+                                <?php echo esc_html($subscription->product_name); ?>
+                                <?php if (!empty($variant_details['size'])) : ?>
+                                    <br><span class="cna-invoice-print__muted"><?php echo esc_html($variant_details['size']); ?></span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="cna-invoice-print__num"><?php echo esc_html($qty); ?></td>
+                            <td class="cna-invoice-print__num">$<?php echo number_format($unit_price, 2); ?></td>
+                            <td class="cna-invoice-print__num">$<?php echo number_format($product_subtotal, 2); ?></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section class="cna-invoice-print__section cna-invoice-print__totals">
+                <h2 class="cna-invoice-print__section-title"><?php esc_html_e('Resumen del pago', 'cna-subscriptions'); ?></h2>
+                <table class="cna-invoice-print__totals-table">
+                    <tbody>
+                        <tr>
+                            <th scope="row">
+                                <?php
+                                if ($has_partial_advance) {
+                                    printf(
+                                        esc_html__('Anticipo del producto (%s%%)', 'cna-subscriptions'),
+                                        esc_html(number_format($advance_percent, 0))
+                                    );
+                                } else {
+                                    esc_html_e('Producto (anticipo)', 'cna-subscriptions');
+                                }
+                                ?>
+                            </th>
+                            <td>$<?php echo number_format($advance_amount, 2); ?></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php esc_html_e('Envío', 'cna-subscriptions'); ?></th>
+                            <td>$<?php echo number_format($shipping_total, 2); ?></td>
+                        </tr>
+                        <?php if ($annual_fee > 0) : ?>
+                        <tr>
+                            <th scope="row"><?php esc_html_e('Cuota anual', 'cna-subscriptions'); ?></th>
+                            <td>$<?php echo number_format($annual_fee, 2); ?></td>
+                        </tr>
+                        <?php endif; ?>
+                        <?php if ($fee_amount > 0) : ?>
+                        <tr>
+                            <th scope="row"><?php esc_html_e('Comisión de pasarela', 'cna-subscriptions'); ?></th>
+                            <td>$<?php echo number_format($fee_amount, 2); ?></td>
+                        </tr>
+                        <?php endif; ?>
+                        <tr class="cna-invoice-print__grand-total">
+                            <th scope="row"><?php esc_html_e('Total pagado', 'cna-subscriptions'); ?></th>
+                            <td><strong>$<?php echo number_format($total_with_fee, 2); ?></strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <footer class="cna-invoice-print__footer">
+                <p><?php esc_html_e('Documento generado desde el sistema de suscripciones.', 'cna-subscriptions'); ?></p>
+            </footer>
+        </div>
+        <?php
+        return ob_get_clean();
     }
 
     /**
@@ -667,6 +1048,36 @@ class CNA_Subscriptions_Admin {
             ));
         }
 
+        // Desglose de precios (anticipo vs valor total del producto)
+        $qty = max(1, intval($variant_details['qty'] ?? 1));
+        $advance_percent = floatval($variant_details['advance_percent'] ?? 100);
+        $advance_percent = ($advance_percent === 50.0) ? 50 : 100;
+
+        $product_subtotal = floatval($subscription->product_subtotal);
+        $unit_price = floatval($subscription->unit_price);
+        $advance_amount = floatval($subscription->advance_amount);
+        if ($advance_amount <= 0 && $product_subtotal > 0) {
+            $advance_amount = $product_subtotal * ($advance_percent / 100);
+        }
+
+        $has_partial_advance = $advance_percent < 100;
+        $remaining_per_delivery = $has_partial_advance
+            ? $unit_price * ((100 - $advance_percent) / 100)
+            : 0;
+
+        $shipping_total = floatval($subscription->shipping_total);
+        $annual_fee = floatval($subscription->annual_fee);
+        $fee_amount = floatval($subscription->fee_amount);
+        $net_amount = floatval($subscription->net_amount);
+        if ($net_amount <= 0) {
+            $net_amount = $advance_amount + $shipping_total + $annual_fee;
+        }
+        $total_with_fee = floatval($subscription->total_with_fee);
+
+        $payment_transaction = class_exists('CNA_Payment_Transaction')
+            ? CNA_Payment_Transaction::get_display_data($subscription)
+            : array('provider' => '', 'provider_label' => '', 'fields' => array());
+
         ?>
         <?php echo $this->get_details_page_styles(); ?>
         <div class="wrap cna-subscription-details">
@@ -682,7 +1093,7 @@ class CNA_Subscriptions_Admin {
             </div>
 
             <!-- Contenedor Principal Card Style -->
-            <div class="cna-main-card" id="cna-invoice-print">
+            <div class="cna-main-card" id="cna-subscription-detail-card">
                 <!-- Encabezado de la Card -->
                 <div class="cna-card-header">
                     <div class="cna-header-content">
@@ -732,55 +1143,35 @@ class CNA_Subscriptions_Admin {
                                 <div class="cna-product-tags">
                                     <span class="cna-tag"><?php _e('Tamaño:', 'cna-subscriptions'); ?> <?php echo esc_html($variant_details['size'] ?? 'N/A'); ?></span>
                                     <span class="cna-tag"><?php _e('Frecuencia:', 'cna-subscriptions'); ?> <?php echo esc_html($variant_details['frequency'] ?? 'N/A'); ?> <?php _e('semanas', 'cna-subscriptions'); ?></span>
+                                    <span class="cna-tag"><?php _e('Anticipo:', 'cna-subscriptions'); ?> <?php echo esc_html($advance_percent); ?>%</span>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Tabla de Desglose de Precios (sin bordes) -->
                         <div class="cna-pricing-section">
-                            <table class="cna-pricing-table">
-                                <thead>
-                                    <tr>
-                                        <th class="cna-text-left"><?php _e('Concepto', 'cna-subscriptions'); ?></th>
-                                        <th class="cna-text-center"><?php _e('Cantidad', 'cna-subscriptions'); ?></th>
-                                        <th class="cna-text-right"><?php _e('Precio Unitario', 'cna-subscriptions'); ?></th>
-                                        <th class="cna-text-right"><?php _e('Subtotal', 'cna-subscriptions'); ?></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td class="cna-text-left"><?php echo esc_html($subscription->product_name); ?></td>
-                                        <td class="cna-text-center"><?php echo esc_html($variant_details['qty'] ?? 0); ?></td>
-                                        <td class="cna-text-right">$<?php echo number_format(floatval($subscription->unit_price), 2); ?></td>
-                                        <td class="cna-text-right">$<?php echo number_format(floatval($subscription->product_subtotal), 2); ?></td>
-                                    </tr>
-                                </tbody>
-                            </table>
-
-                            <!-- Totales -->
-                            <div class="cna-totals-section">
-                                <div class="cna-total-line">
-                                    <span class="cna-total-label"><?php _e('Subtotal Producto:', 'cna-subscriptions'); ?></span>
-                                    <span class="cna-total-value">$<?php echo number_format(floatval($subscription->product_subtotal), 2); ?></span>
-                                </div>
-                                <div class="cna-total-line">
-                                    <span class="cna-total-label"><?php _e('Envío:', 'cna-subscriptions'); ?></span>
-                                    <span class="cna-total-value">$<?php echo number_format(floatval($subscription->shipping_total), 2); ?></span>
-                                </div>
-                                <div class="cna-total-line">
-                                    <span class="cna-total-label"><?php _e('Cuota Anual:', 'cna-subscriptions'); ?></span>
-                                    <span class="cna-total-value">$<?php echo number_format(floatval($subscription->annual_fee), 2); ?></span>
-                                </div>
-                                <div class="cna-total-line">
-                                    <span class="cna-total-label"><?php _e('Fee Pasarela:', 'cna-subscriptions'); ?></span>
-                                    <span class="cna-total-value">$<?php echo number_format(floatval($subscription->fee_amount), 2); ?></span>
-                                </div>
-                                <div class="cna-total-divider"></div>
-                                <div class="cna-total-line cna-total-final">
-                                    <span class="cna-total-label"><?php _e('Total:', 'cna-subscriptions'); ?></span>
-                                    <span class="cna-total-amount">$<?php echo number_format(floatval($subscription->total_with_fee), 2); ?></span>
-                                </div>
-                            </div>
+                            <?php
+                            echo $this->render_subscription_product_info_section(
+                                $subscription,
+                                $variant_details,
+                                $qty,
+                                $unit_price,
+                                $product_subtotal,
+                                $advance_percent,
+                                $has_partial_advance,
+                                $remaining_per_delivery
+                            );
+                            echo $this->render_subscription_charge_summary_section(
+                                $advance_amount,
+                                $shipping_total,
+                                $annual_fee,
+                                $net_amount,
+                                $fee_amount,
+                                $total_with_fee,
+                                $advance_percent,
+                                $has_partial_advance
+                            );
+                            echo $this->render_payment_transaction_section($payment_transaction, $subscription);
+                            ?>
                         </div>
                     </div>
 
@@ -791,21 +1182,40 @@ class CNA_Subscriptions_Admin {
                         <div class="cna-actions-section">
                             <h3 class="cna-section-heading"><?php _e('Acciones', 'cna-subscriptions'); ?></h3>
                             <div class="cna-actions-content">
-                                <label class="cna-select-label"><?php _e('Cambiar Estado:', 'cna-subscriptions'); ?></label>
+                                <p class="cna-actions-auto-renew-status">
+                                    <?php _e('Renovación automática:', 'cna-subscriptions'); ?>
+                                    <strong><?php echo !empty($subscription->is_auto_renew) ? esc_html__('Activa', 'cna-subscriptions') : esc_html__('Desactivada', 'cna-subscriptions'); ?></strong>
+                                    <?php if (!empty($subscription->next_renewal_date)) : ?>
+                                        <span class="cna-actions-auto-renew-date">
+                                            (<?php printf(esc_html__('próxima: %s', 'cna-subscriptions'), esc_html($this->format_date($subscription->next_renewal_date))); ?>)
+                                        </span>
+                                    <?php endif; ?>
+                                </p>
+                                <label class="cna-select-label"><?php _e('Acción:', 'cna-subscriptions'); ?></label>
                                 <select id="cna-subscription-action" class="cna-select-modern">
                                     <option value=""><?php _e('Seleccionar acción...', 'cna-subscriptions'); ?></option>
-                                    <option value="activate" <?php echo $subscription->status === 'active' ? 'disabled' : ''; ?>>
-                                        <?php _e('Activar suscripción', 'cna-subscriptions'); ?>
-                                    </option>
-                                    <option value="pause" <?php echo $subscription->status === 'paused' ? 'disabled' : ''; ?>>
-                                        <?php _e('Pausar suscripción', 'cna-subscriptions'); ?>
-                                    </option>
-                                    <option value="cancel" <?php echo $subscription->status === 'cancelled' ? 'disabled' : ''; ?>>
-                                        <?php _e('Cancelar suscripción', 'cna-subscriptions'); ?>
-                                    </option>
-                                    <option value="renew">
-                                        <?php _e('Renovar suscripción', 'cna-subscriptions'); ?>
-                                    </option>
+                                    <optgroup label="<?php echo esc_attr__('Estado de la suscripción', 'cna-subscriptions'); ?>">
+                                        <option value="activate" <?php echo $subscription->status === 'active' ? 'disabled' : ''; ?>>
+                                            <?php _e('Activar suscripción', 'cna-subscriptions'); ?>
+                                        </option>
+                                        <option value="pause" <?php echo $subscription->status === 'paused' ? 'disabled' : ''; ?>>
+                                            <?php _e('Pausar suscripción', 'cna-subscriptions'); ?>
+                                        </option>
+                                        <option value="cancel" <?php echo $subscription->status === 'cancelled' ? 'disabled' : ''; ?>>
+                                            <?php _e('Cancelar suscripción', 'cna-subscriptions'); ?>
+                                        </option>
+                                        <option value="renew">
+                                            <?php _e('Renovar suscripción', 'cna-subscriptions'); ?>
+                                        </option>
+                                    </optgroup>
+                                    <optgroup label="<?php echo esc_attr__('Renovación automática', 'cna-subscriptions'); ?>">
+                                        <option value="disable_auto_renew" <?php echo empty($subscription->is_auto_renew) ? 'disabled' : ''; ?>>
+                                            <?php _e('Desactivar auto-renovación (mantener entregas actuales)', 'cna-subscriptions'); ?>
+                                        </option>
+                                        <option value="enable_auto_renew" <?php echo !empty($subscription->is_auto_renew) ? 'disabled' : ''; ?>>
+                                            <?php _e('Activar auto-renovación', 'cna-subscriptions'); ?>
+                                        </option>
+                                    </optgroup>
                                 </select>
                             </div>
                         </div>
@@ -890,6 +1300,7 @@ class CNA_Subscriptions_Admin {
                        
                     </div>                    
                 </div>
+
                  <!-- Fechas de Entrega -->
                  <h3 class="cna-section-heading dates"><?php _e('Fechas de Entrega', 'cna-subscriptions'); ?></h3>
                  <div class="cna-deliveries-section">                    
@@ -966,188 +1377,280 @@ class CNA_Subscriptions_Admin {
             </div>
         </div>
 
+        <?php
+        echo $this->render_invoice_print_document(
+            $subscription,
+            $subscription_id,
+            $variant_details,
+            $shipping_address,
+            $billing_address,
+            $user_first_name,
+            $user_last_name,
+            $user_phone,
+            $qty,
+            $unit_price,
+            $product_subtotal,
+            $advance_percent,
+            $has_partial_advance,
+            $advance_amount,
+            $shipping_total,
+            $annual_fee,
+            $fee_amount,
+            $total_with_fee
+        );
+        ?>
+
         <script>
         jQuery(document).ready(function($) {
-            // Cambiar estado de entrega (dropdown)
+            var deliveryConfirm = {
+                title: '<?php echo esc_js(__('Cambiar estado de entrega', 'cna-subscriptions')); ?>',
+                message: '<?php echo esc_js(__('¿Estás seguro de cambiar el estado de esta entrega?', 'cna-subscriptions')); ?>',
+                confirmLabel: '<?php echo esc_js(__('Sí, cambiar', 'cna-subscriptions')); ?>'
+            };
+
+            var subscriptionActionConfirm = {
+                activate: {
+                    title: '<?php echo esc_js(__('Activar suscripción', 'cna-subscriptions')); ?>',
+                    message: '<?php echo esc_js(__('La suscripción quedará activa y continuará según la programación. ¿Deseas continuar?', 'cna-subscriptions')); ?>',
+                    variant: 'default',
+                    confirmLabel: '<?php echo esc_js(__('Sí, activar', 'cna-subscriptions')); ?>'
+                },
+                pause: {
+                    title: '<?php echo esc_js(__('Pausar suscripción', 'cna-subscriptions')); ?>',
+                    message: '<?php echo esc_js(__('Se pausará la suscripción. No habrá cobros automáticos hasta reactivarla. ¿Deseas continuar?', 'cna-subscriptions')); ?>',
+                    variant: 'default',
+                    confirmLabel: '<?php echo esc_js(__('Sí, pausar', 'cna-subscriptions')); ?>'
+                },
+                cancel: {
+                    title: '<?php echo esc_js(__('Cancelar suscripción', 'cna-subscriptions')); ?>',
+                    message: '<?php echo esc_js(__('Se cancelará la suscripción. No se realizarán cobros ni entregas futuras. ¿Estás seguro?', 'cna-subscriptions')); ?>',
+                    variant: 'danger',
+                    confirmLabel: '<?php echo esc_js(__('Sí, cancelar', 'cna-subscriptions')); ?>'
+                },
+                renew: {
+                    title: '<?php echo esc_js(__('Renovar suscripción', 'cna-subscriptions')); ?>',
+                    message: '<?php echo esc_js(__('Se activará la suscripción y se actualizará la próxima fecha de renovación según la frecuencia. ¿Deseas continuar?', 'cna-subscriptions')); ?>',
+                    variant: 'default',
+                    confirmLabel: '<?php echo esc_js(__('Sí, renovar', 'cna-subscriptions')); ?>'
+                },
+                disable_auto_renew: {
+                    title: '<?php echo esc_js(__('Desactivar auto-renovación', 'cna-subscriptions')); ?>',
+                    message: '<?php echo esc_js(__('Se desactivará el cobro automático del próximo ciclo. Las entregas ya programadas de este período se mantienen. ¿Continuar?', 'cna-subscriptions')); ?>',
+                    variant: 'default',
+                    confirmLabel: '<?php echo esc_js(__('Sí, desactivar', 'cna-subscriptions')); ?>'
+                },
+                enable_auto_renew: {
+                    title: '<?php echo esc_js(__('Activar auto-renovación', 'cna-subscriptions')); ?>',
+                    message: '<?php echo esc_js(__('Se activará el cobro automático en la próxima fecha de renovación (si hay token de pago guardado). ¿Continuar?', 'cna-subscriptions')); ?>',
+                    variant: 'default',
+                    confirmLabel: '<?php echo esc_js(__('Sí, activar', 'cna-subscriptions')); ?>'
+                }
+            };
+
+            function updateDeliveryStatus(deliveryId, newStatus, onError) {
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'cna_update_delivery_status',
+                        delivery_id: deliveryId,
+                        status: newStatus,
+                        nonce: '<?php echo wp_create_nonce('cna_update_delivery_status'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            location.reload();
+                        } else {
+                            CNAAdminModal.error(
+                                response.data || '<?php echo esc_js(__('Error al actualizar el estado', 'cna-subscriptions')); ?>',
+                                onError
+                            );
+                        }
+                    },
+                    error: function() {
+                        CNAAdminModal.error(
+                            (window.cnaAdminModalL10n && cnaAdminModalL10n.connectionError) || '<?php echo esc_js(__('Error de conexión', 'cna-subscriptions')); ?>',
+                            onError
+                        );
+                    }
+                });
+            }
+
             $('.cna-delivery-action-modern').on('change', function() {
                 var $select = $(this);
                 var deliveryId = $select.data('delivery-id');
                 var newStatus = $select.val();
-                
+
                 if (!newStatus) return;
-                
-                if (!confirm('<?php echo esc_js(__('¿Estás seguro de cambiar el estado de esta entrega?', 'cna-subscriptions')); ?>')) {
-                    $select.val('');
-                    return;
-                }
-                
-                $.ajax({
-                    url: ajaxurl,
-                    type: 'POST',
-                    data: {
-                        action: 'cna_update_delivery_status',
-                        delivery_id: deliveryId,
-                        status: newStatus,
-                        nonce: '<?php echo wp_create_nonce('cna_update_delivery_status'); ?>'
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            location.reload();
-                        } else {
-                            alert(response.data || '<?php echo esc_js(__('Error al actualizar el estado', 'cna-subscriptions')); ?>');
+
+                CNAAdminModal.confirm(Object.assign({}, deliveryConfirm, {
+                    onConfirm: function() {
+                        updateDeliveryStatus(deliveryId, newStatus, function() {
                             $select.val('');
-                        }
+                        });
                     },
-                    error: function() {
-                        alert('<?php echo esc_js(__('Error de conexión', 'cna-subscriptions')); ?>');
+                    onCancel: function() {
                         $select.val('');
                     }
-                });
+                }));
             });
 
-            // Cambiar estado de entrega (botón)
             $('.cna-delivery-action-btn').on('click', function() {
                 var $btn = $(this);
                 var deliveryId = $btn.data('delivery-id');
                 var newStatus = $btn.data('status');
-                
+
                 if (!newStatus) return;
-                
-                if (!confirm('<?php echo esc_js(__('¿Estás seguro de cambiar el estado de esta entrega?', 'cna-subscriptions')); ?>')) {
-                    return;
-                }
-                
-                // Deshabilitar botón mientras se procesa
-                $btn.prop('disabled', true).text('<?php echo esc_js(__('Procesando...', 'cna-subscriptions')); ?>');
-                
-                $.ajax({
-                    url: ajaxurl,
-                    type: 'POST',
-                    data: {
-                        action: 'cna_update_delivery_status',
-                        delivery_id: deliveryId,
-                        status: newStatus,
-                        nonce: '<?php echo wp_create_nonce('cna_update_delivery_status'); ?>'
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            location.reload();
-                        } else {
-                            alert(response.data || '<?php echo esc_js(__('Error al actualizar el estado', 'cna-subscriptions')); ?>');
+
+                CNAAdminModal.confirm(Object.assign({}, deliveryConfirm, {
+                    onConfirm: function() {
+                        $btn.prop('disabled', true).text('<?php echo esc_js(__('Procesando...', 'cna-subscriptions')); ?>');
+                        updateDeliveryStatus(deliveryId, newStatus, function() {
                             $btn.prop('disabled', false).text($btn.data('original-text') || '<?php echo esc_js(__('Entregada en domicilio', 'cna-subscriptions')); ?>');
-                        }
-                    },
-                    error: function() {
-                        alert('<?php echo esc_js(__('Error de conexión', 'cna-subscriptions')); ?>');
-                        $btn.prop('disabled', false).text($btn.data('original-text') || '<?php echo esc_js(__('Entregada en domicilio', 'cna-subscriptions')); ?>');
+                        });
                     }
-                });
+                }));
             });
 
-            // Cambiar estado de suscripción
             $('#cna-subscription-action').on('change', function() {
                 var $select = $(this);
                 var action = $select.val();
-                
+
                 if (!action) return;
-                
-                var actionLabels = {
-                    'activate': '<?php echo esc_js(__('Activar suscripción', 'cna-subscriptions')); ?>',
-                    'pause': '<?php echo esc_js(__('Pausar suscripción', 'cna-subscriptions')); ?>',
-                    'cancel': '<?php echo esc_js(__('Cancelar suscripción', 'cna-subscriptions')); ?>',
-                    'renew': '<?php echo esc_js(__('Renovar suscripción', 'cna-subscriptions')); ?>'
+
+                var copy = subscriptionActionConfirm[action] || {
+                    title: '<?php echo esc_js(__('Confirmar acción', 'cna-subscriptions')); ?>',
+                    message: '<?php echo esc_js(__('¿Estás seguro de realizar esta acción?', 'cna-subscriptions')); ?>',
+                    variant: 'default',
+                    confirmLabel: '<?php echo esc_js(__('Confirmar', 'cna-subscriptions')); ?>'
                 };
-                
-                if (!confirm('<?php echo esc_js(__('¿Estás seguro de realizar esta acción?', 'cna-subscriptions')); ?>: ' + actionLabels[action])) {
-                    $select.val('');
-                    return;
-                }
-                
-                $.ajax({
-                    url: ajaxurl,
-                    type: 'POST',
-                    data: {
-                        action: 'cna_update_subscription_status',
-                        subscription_id: <?php echo intval($subscription_id); ?>,
-                        action_type: action,
-                        nonce: '<?php echo wp_create_nonce('cna_update_subscription_status'); ?>'
+
+                CNAAdminModal.confirm({
+                    title: copy.title,
+                    message: copy.message,
+                    variant: copy.variant,
+                    confirmLabel: copy.confirmLabel,
+                    onConfirm: function() {
+                        $.ajax({
+                            url: ajaxurl,
+                            type: 'POST',
+                            data: {
+                                action: 'cna_update_subscription_status',
+                                subscription_id: <?php echo intval($subscription_id); ?>,
+                                action_type: action,
+                                nonce: '<?php echo wp_create_nonce('cna_update_subscription_status'); ?>'
+                            },
+                            success: function(response) {
+                                if (response.success) {
+                                    CNAAdminModal.success(
+                                        response.data || '<?php echo esc_js(__('Acción realizada correctamente', 'cna-subscriptions')); ?>',
+                                        function() { location.reload(); }
+                                    );
+                                } else {
+                                    CNAAdminModal.error(
+                                        response.data || '<?php echo esc_js(__('Error al realizar la acción', 'cna-subscriptions')); ?>',
+                                        function() { $select.val(''); }
+                                    );
+                                }
+                            },
+                            error: function() {
+                                CNAAdminModal.error(
+                                    (window.cnaAdminModalL10n && cnaAdminModalL10n.connectionError) || '<?php echo esc_js(__('Error de conexión', 'cna-subscriptions')); ?>',
+                                    function() { $select.val(''); }
+                                );
+                            }
+                        });
                     },
-                    success: function(response) {
-                        if (response.success) {
-                            alert(response.data || '<?php echo esc_js(__('Acción realizada correctamente', 'cna-subscriptions')); ?>');
-                            location.reload();
-                        } else {
-                            alert(response.data || '<?php echo esc_js(__('Error al realizar la acción', 'cna-subscriptions')); ?>');
-                            $select.val('');
-                        }
-                    },
-                    error: function() {
-                        alert('<?php echo esc_js(__('Error de conexión', 'cna-subscriptions')); ?>');
+                    onCancel: function() {
                         $select.val('');
                     }
                 });
             });
 
-            // Eliminar suscripción
             $('#cna-delete-subscription').on('click', function() {
-                if (!confirm('<?php echo esc_js(__('¿Estás seguro de eliminar esta suscripción? Esta acción no se puede deshacer.', 'cna-subscriptions')); ?>')) {
-                    return;
-                }
-                
                 var subscriptionId = $(this).data('subscription-id');
-                
-                $.ajax({
-                    url: ajaxurl,
-                    type: 'POST',
-                    data: {
-                        action: 'cna_delete_subscription',
-                        subscription_id: subscriptionId,
-                        nonce: '<?php echo wp_create_nonce('cna_delete_subscription'); ?>'
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            alert('<?php echo esc_js(__('Suscripción eliminada correctamente', 'cna-subscriptions')); ?>');
-                            window.location.href = '<?php echo esc_url(admin_url('edit.php?post_type=cna_product&page=cna-subscriptions')); ?>';
-                        } else {
-                            alert(response.data || '<?php echo esc_js(__('Error al eliminar la suscripción', 'cna-subscriptions')); ?>');
-                        }
-                    },
-                    error: function() {
-                        alert('<?php echo esc_js(__('Error de conexión', 'cna-subscriptions')); ?>');
+
+                CNAAdminModal.confirm({
+                    title: '<?php echo esc_js(__('Eliminar suscripción', 'cna-subscriptions')); ?>',
+                    message: '<?php echo esc_js(__('¿Estás seguro de eliminar esta suscripción? Esta acción no se puede deshacer.', 'cna-subscriptions')); ?>',
+                    variant: 'danger',
+                    confirmLabel: '<?php echo esc_js(__('Sí, eliminar', 'cna-subscriptions')); ?>',
+                    onConfirm: function() {
+                        $.ajax({
+                            url: ajaxurl,
+                            type: 'POST',
+                            data: {
+                                action: 'cna_delete_subscription',
+                                subscription_id: subscriptionId,
+                                nonce: '<?php echo wp_create_nonce('cna_delete_subscription'); ?>'
+                            },
+                            success: function(response) {
+                                if (response.success) {
+                                    CNAAdminModal.success(
+                                        '<?php echo esc_js(__('Suscripción eliminada correctamente', 'cna-subscriptions')); ?>',
+                                        function() {
+                                            window.location.href = '<?php echo esc_url(admin_url('edit.php?post_type=cna_product&page=cna-subscriptions')); ?>';
+                                        }
+                                    );
+                                } else {
+                                    CNAAdminModal.error(
+                                        response.data || '<?php echo esc_js(__('Error al eliminar la suscripción', 'cna-subscriptions')); ?>'
+                                    );
+                                }
+                            },
+                            error: function() {
+                                CNAAdminModal.error(
+                                    (window.cnaAdminModalL10n && cnaAdminModalL10n.connectionError) || '<?php echo esc_js(__('Error de conexión', 'cna-subscriptions')); ?>'
+                                );
+                            }
+                        });
                     }
                 });
             });
 
-            // Generar fechas de entrega
             $('#cna-generate-deliveries').on('click', function() {
-                if (!confirm('<?php echo esc_js(__('¿Generar fechas de entrega para esta suscripción?', 'cna-subscriptions')); ?>')) {
-                    return;
-                }
-                
                 var subscriptionId = $(this).data('subscription-id');
                 var $button = $(this);
-                $button.prop('disabled', true).text('<?php echo esc_js(__('Generando...', 'cna-subscriptions')); ?>');
-                
-                $.ajax({
-                    url: ajaxurl,
-                    type: 'POST',
-                    data: {
-                        action: 'cna_generate_deliveries',
-                        subscription_id: subscriptionId,
-                        nonce: '<?php echo wp_create_nonce('cna_generate_deliveries'); ?>'
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            alert('<?php echo esc_js(__('Fechas de entrega generadas correctamente', 'cna-subscriptions')); ?>');
-                            location.reload();
-                        } else {
-                            alert(response.data || '<?php echo esc_js(__('Error al generar las fechas de entrega', 'cna-subscriptions')); ?>');
-                            $button.prop('disabled', false).text('<?php echo esc_js(__('Generar Fechas de Entrega', 'cna-subscriptions')); ?>');
-                        }
-                    },
-                    error: function() {
-                        alert('<?php echo esc_js(__('Error de conexión', 'cna-subscriptions')); ?>');
-                        $button.prop('disabled', false).text('<?php echo esc_js(__('Generar Fechas de Entrega', 'cna-subscriptions')); ?>');
+
+                CNAAdminModal.confirm({
+                    title: '<?php echo esc_js(__('Generar fechas de entrega', 'cna-subscriptions')); ?>',
+                    message: '<?php echo esc_js(__('¿Generar fechas de entrega para esta suscripción?', 'cna-subscriptions')); ?>',
+                    confirmLabel: '<?php echo esc_js(__('Sí, generar', 'cna-subscriptions')); ?>',
+                    onConfirm: function() {
+                        $button.prop('disabled', true).text('<?php echo esc_js(__('Generando...', 'cna-subscriptions')); ?>');
+
+                        $.ajax({
+                            url: ajaxurl,
+                            type: 'POST',
+                            data: {
+                                action: 'cna_generate_deliveries',
+                                subscription_id: subscriptionId,
+                                nonce: '<?php echo wp_create_nonce('cna_generate_deliveries'); ?>'
+                            },
+                            success: function(response) {
+                                if (response.success) {
+                                    CNAAdminModal.success(
+                                        '<?php echo esc_js(__('Fechas de entrega generadas correctamente', 'cna-subscriptions')); ?>',
+                                        function() { location.reload(); }
+                                    );
+                                } else {
+                                    CNAAdminModal.error(
+                                        response.data || '<?php echo esc_js(__('Error al generar las fechas de entrega', 'cna-subscriptions')); ?>',
+                                        function() {
+                                            $button.prop('disabled', false).text('<?php echo esc_js(__('Generar Fechas de Entrega', 'cna-subscriptions')); ?>');
+                                        }
+                                    );
+                                }
+                            },
+                            error: function() {
+                                CNAAdminModal.error(
+                                    (window.cnaAdminModalL10n && cnaAdminModalL10n.connectionError) || '<?php echo esc_js(__('Error de conexión', 'cna-subscriptions')); ?>',
+                                    function() {
+                                        $button.prop('disabled', false).text('<?php echo esc_js(__('Generar Fechas de Entrega', 'cna-subscriptions')); ?>');
+                                    }
+                                );
+                            }
+                        });
                     }
                 });
             });
@@ -1437,9 +1940,95 @@ class CNA_Subscriptions_Admin {
             font-weight: 500;
         }
 
-        /* Tabla de Precios (SIN BORDES) */
+        /* Desglose: información vs cobro */
         .cna-pricing-section {
             margin-top: var(--cna-spacing-lg);
+            display: flex;
+            flex-direction: column;
+            gap: var(--cna-spacing-lg);
+        }
+        .cna-detail-block {
+            border: 1px solid var(--cna-border-light);
+            border-radius: 8px;
+            padding: var(--cna-spacing-lg);
+            background: #fff;
+        }
+        .cna-detail-block--info {
+            background: #f8fafc;
+            border-color: #e2e8f0;
+        }
+        .cna-detail-block--charge {
+            border-color: #bfdbfe;
+            background: #f8fbff;
+        }
+        .cna-detail-block__title {
+            margin: 0 0 0.35rem;
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: var(--cna-text-primary);
+        }
+        .cna-detail-block__hint {
+            margin: 0 0 1rem;
+            font-size: 13px;
+            color: var(--cna-text-secondary);
+        }
+        .cna-detail-block__muted {
+            display: block;
+            margin-top: 0.25rem;
+            font-size: 12px;
+            font-weight: 400;
+            color: var(--cna-text-secondary);
+        }
+        .cna-info-dl {
+            display: grid;
+            grid-template-columns: minmax(140px, 38%) 1fr;
+            gap: 0.65rem 1rem;
+            margin: 0;
+        }
+        .cna-info-dl dt {
+            margin: 0;
+            font-weight: 600;
+            color: var(--cna-text-secondary);
+            font-size: 14px;
+        }
+        .cna-info-dl dd {
+            margin: 0;
+            color: var(--cna-text-primary);
+            font-size: 15px;
+        }
+        .cna-charge-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .cna-charge-table th,
+        .cna-charge-table td {
+            padding: 0.55rem 0;
+            border-bottom: 1px solid var(--cna-border-light);
+            font-size: 15px;
+        }
+        .cna-charge-table th {
+            text-align: left;
+            font-weight: 500;
+            color: var(--cna-text-secondary);
+            width: 70%;
+        }
+        .cna-charge-table td {
+            text-align: right;
+            font-weight: 600;
+            color: var(--cna-text-primary);
+            white-space: nowrap;
+        }
+        .cna-charge-table__subtotal th,
+        .cna-charge-table__subtotal td {
+            border-top: 1px dashed var(--cna-border);
+            padding-top: 0.75rem;
+        }
+        .cna-charge-table__total th,
+        .cna-charge-table__total td {
+            border-bottom: none;
+            font-size: 1.05rem;
+            color: #1d4ed8;
+            padding-top: 0.5rem;
         }
         .cna-pricing-table {
             width: 100%;
@@ -1484,6 +2073,42 @@ class CNA_Subscriptions_Admin {
             align-items: center;
             padding: var(--cna-spacing-sm) 0;
             font-size: 15px;
+        }
+        .cna-total-line--info .cna-total-label,
+        .cna-total-line--info .cna-total-value {
+            color: var(--cna-text-secondary);
+        }
+        .cna-total-line--charge .cna-total-value {
+            font-weight: 600;
+            color: var(--cna-text-primary);
+        }
+        .cna-total-line--note {
+            padding-top: 0;
+            font-size: 13px;
+        }
+        .cna-total-line--note .cna-total-label,
+        .cna-total-line--note .cna-total-value {
+            color: var(--cna-text-secondary);
+            font-weight: 400;
+        }
+        .cna-total-line--subtotal {
+            border-top: 1px dashed var(--cna-border);
+            margin-top: var(--cna-spacing-xs);
+            padding-top: var(--cna-spacing-sm);
+        }
+        .cna-total-line--subtotal .cna-total-label,
+        .cna-total-line--subtotal .cna-total-value {
+            font-weight: 600;
+        }
+        .cna-total-note-detail {
+            font-size: 12px;
+            color: var(--cna-text-secondary);
+        }
+        .cna-pricing-table-note {
+            margin-top: 4px;
+            font-size: 12px;
+            color: var(--cna-text-secondary);
+            font-style: italic;
         }
         .cna-total-label {
             color: var(--cna-text-secondary);
@@ -1639,7 +2264,21 @@ class CNA_Subscriptions_Admin {
         .cna-actions-content {
             display: flex;
             flex-direction: row;
+            flex-wrap: wrap;
             gap: var(--cna-spacing-md);
+            align-items: flex-end;
+        }
+        .cna-actions-auto-renew-status {
+            flex: 0 0 100%;
+            margin: 0 0 var(--cna-spacing-xs);
+            font-size: 14px;
+            color: var(--cna-text-secondary);
+        }
+        .cna-actions-auto-renew-status strong {
+            color: var(--cna-text-primary);
+        }
+        .cna-actions-auto-renew-date {
+            font-size: 13px;
         }
         .cna-select-label {
             flex: 1;
@@ -1684,6 +2323,67 @@ class CNA_Subscriptions_Admin {
         .cna-btn-delete-outline:hover {
             background: var(--cna-danger);
             color: #ffffff;
+        }
+
+        /* Detalle de transacción de pago */
+        .cna-payment-transaction-section {
+            margin: 0;
+            padding: 0;
+            max-width: none;
+            border: 1px solid #99f6e4;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #fff;
+        }
+        .cna-payment-transaction-notice {
+            margin: 0 1rem 0.75rem;
+            padding: 0.65rem 0.75rem;
+            font-size: 13px;
+            color: #0f766e;
+            background: #f0fdfa;
+            border-radius: 4px;
+            border-left: 3px solid #14b8a6;
+        }
+        .cna-payment-transaction-header {
+            background: #0d9488;
+            color: #fff;
+            text-align: center;
+            font-weight: 600;
+            padding: 0.65rem 1rem;
+            border-radius: 4px 4px 0 0;
+            font-size: 1rem;
+        }
+        .cna-payment-transaction-title {
+            color: #0d9488;
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin: 0;
+            padding: 1rem 1rem 0.75rem;
+            border-bottom: 2px solid #0d9488;
+        }
+        .cna-payment-transaction-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95rem;
+            padding: 0 1rem 1rem;
+        }
+        .cna-payment-transaction-table tbody {
+            display: table;
+            width: calc(100% - 2rem);
+            margin: 0 1rem 1rem;
+        }
+        .cna-payment-transaction-table th {
+            text-align: left;
+            font-weight: 600;
+            color: #334155;
+            padding: 0.5rem 1rem 0.5rem 0;
+            vertical-align: top;
+            width: 48%;
+        }
+        .cna-payment-transaction-table td {
+            color: #0f172a;
+            padding: 0.5rem 0;
+            word-break: break-word;
         }
 
         /* Fechas de Entrega */
@@ -1911,23 +2611,194 @@ class CNA_Subscriptions_Admin {
         }
 
         /* ============================================
-           PRINT STYLES
+           INVOICE PRINT (hidden on screen)
+           ============================================ */
+        .cna-invoice-print {
+            display: none;
+        }
+
+        /* ============================================
+           PRINT STYLES — solo documento de factura
            ============================================ */
         @media print {
-            body * { visibility: hidden; }
-            .cna-main-card, .cna-main-card * { visibility: visible; }
-            .cna-main-card {
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
-                box-shadow: none;
-                border: none;
+            @page {
+                size: A4;
+                margin: 14mm 12mm;
             }
-            .cna-btn-print { display: none; }
-            .cna-right-column { display: none; }
-            .cna-card-content {
-                grid-template-columns: 1fr;
+
+            html,
+            body {
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #fff !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+
+            #wpadminbar,
+            #adminmenumain,
+            #adminmenuback,
+            #wpfooter,
+            #screen-meta,
+            #screen-meta-links,
+            .notice,
+            .update-nag,
+            .cna-page-header,
+            #cna-subscription-detail-card,
+            .cna-subscription-details > .cna-main-card {
+                display: none !important;
+            }
+
+            #wpcontent,
+            #wpbody,
+            #wpbody-content,
+            .wrap {
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+            }
+
+            .cna-subscription-details {
+                max-width: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+
+            #cna-invoice-print-document,
+            .cna-invoice-print {
+                display: block !important;
+                visibility: visible !important;
+                position: static !important;
+                width: 100% !important;
+                max-width: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                box-shadow: none !important;
+                border: none !important;
+                background: #fff !important;
+                color: #111 !important;
+                font-family: Georgia, "Times New Roman", Times, serif, sans-serif;
+                font-size: 11pt;
+                line-height: 1.45;
+            }
+
+            .cna-invoice-print__brand {
+                border-bottom: 2px solid #1b4332;
+                padding-bottom: 10px;
+                margin-bottom: 16px;
+            }
+
+            .cna-invoice-print__title {
+                margin: 0 0 4px;
+                font-size: 20pt;
+                color: #1b4332;
+            }
+
+            .cna-invoice-print__doc-type {
+                margin: 0;
+                font-size: 11pt;
+                color: #444;
+            }
+
+            .cna-invoice-print__meta {
+                display: flex;
+                justify-content: space-between;
+                gap: 24px;
+                margin-bottom: 18px;
+            }
+
+            .cna-invoice-print__meta-col {
+                flex: 1;
+            }
+
+            .cna-invoice-print__meta-col--right {
+                text-align: right;
+            }
+
+            .cna-invoice-print__meta p {
+                margin: 0 0 6px;
+            }
+
+            .cna-invoice-print__section {
+                margin-bottom: 18px;
+                page-break-inside: avoid;
+            }
+
+            .cna-invoice-print__section-title {
+                margin: 0 0 8px;
+                font-size: 12pt;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                color: #1b4332;
+                border-bottom: 1px solid #ccc;
+                padding-bottom: 4px;
+            }
+
+            .cna-invoice-print__subsection-title {
+                margin: 12px 0 4px;
+                font-size: 10pt;
+                color: #333;
+            }
+
+            .cna-invoice-print__line {
+                margin: 0 0 3px;
+            }
+
+            .cna-invoice-print__table,
+            .cna-invoice-print__totals-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 6px;
+            }
+
+            .cna-invoice-print__table th,
+            .cna-invoice-print__table td,
+            .cna-invoice-print__totals-table th,
+            .cna-invoice-print__totals-table td {
+                border: 1px solid #ccc;
+                padding: 7px 8px;
+                text-align: left;
+                vertical-align: top;
+            }
+
+            .cna-invoice-print__table thead th {
+                background: #f3f6f4;
+                font-weight: 700;
+            }
+
+            .cna-invoice-print__num {
+                text-align: right;
+                white-space: nowrap;
+            }
+
+            .cna-invoice-print__muted {
+                color: #666;
+                font-size: 9pt;
+            }
+
+            .cna-invoice-print__totals-table th {
+                width: 70%;
+            }
+
+            .cna-invoice-print__totals-table td {
+                text-align: right;
+                white-space: nowrap;
+            }
+
+            .cna-invoice-print__grand-total th,
+            .cna-invoice-print__grand-total td {
+                font-size: 12pt;
+                border-top: 2px solid #1b4332;
+                background: #f3f6f4;
+            }
+
+            .cna-invoice-print__footer {
+                margin-top: 24px;
+                padding-top: 8px;
+                border-top: 1px solid #ddd;
+                font-size: 9pt;
+                color: #666;
+                text-align: center;
             }
         }
         </style>
@@ -2038,6 +2909,80 @@ class CNA_Subscriptions_Admin {
         $action_message = '';
 
         switch ($action) {
+            case 'disable_auto_renew':
+                if (empty($subscription->is_auto_renew)) {
+                    wp_send_json_error(__('La renovación automática ya está desactivada', 'cna-subscriptions'));
+                }
+
+                $updated = $wpdb->update(
+                    $table_prefix . 'cna_subscriptions',
+                    array('is_auto_renew' => 0),
+                    array('id' => $subscription_id),
+                    array('%d'),
+                    array('%d')
+                );
+
+                if ($updated === false) {
+                    wp_send_json_error(__('Error al actualizar', 'cna-subscriptions'));
+                }
+
+                if (class_exists('CNA_Audit_Logger')) {
+                    CNA_Audit_Logger::log(
+                        'subscription_updated',
+                        array(
+                            'subscription_id' => $subscription_id,
+                            'action' => 'auto_renew_disabled',
+                            'by' => 'admin',
+                            'admin_user_id' => get_current_user_id(),
+                        ),
+                        CNA_Audit_Logger::SEVERITY_MEDIUM
+                    );
+                }
+
+                wp_send_json_success(__('Renovación automática desactivada. Las entregas actuales no se modifican.', 'cna-subscriptions'));
+                return;
+
+            case 'enable_auto_renew':
+                if (!empty($subscription->is_auto_renew)) {
+                    wp_send_json_error(__('La renovación automática ya está activa', 'cna-subscriptions'));
+                }
+
+                if ($subscription->status !== 'active') {
+                    wp_send_json_error(__('Solo se puede activar la auto-renovación en suscripciones activas', 'cna-subscriptions'));
+                }
+
+                if (empty($subscription->pagadito_token)) {
+                    wp_send_json_error(__('No hay token de pago guardado. El cliente debe completar un pago en Pagadito primero.', 'cna-subscriptions'));
+                }
+
+                $updated = $wpdb->update(
+                    $table_prefix . 'cna_subscriptions',
+                    array('is_auto_renew' => 1),
+                    array('id' => $subscription_id),
+                    array('%d'),
+                    array('%d')
+                );
+
+                if ($updated === false) {
+                    wp_send_json_error(__('Error al actualizar', 'cna-subscriptions'));
+                }
+
+                if (class_exists('CNA_Audit_Logger')) {
+                    CNA_Audit_Logger::log(
+                        'subscription_updated',
+                        array(
+                            'subscription_id' => $subscription_id,
+                            'action' => 'auto_renew_enabled',
+                            'by' => 'admin',
+                            'admin_user_id' => get_current_user_id(),
+                        ),
+                        CNA_Audit_Logger::SEVERITY_MEDIUM
+                    );
+                }
+
+                wp_send_json_success(__('Renovación automática activada', 'cna-subscriptions'));
+                return;
+
             case 'activate':
                 $new_status = 'active';
                 $action_message = __('Suscripción activada', 'cna-subscriptions');
